@@ -1,0 +1,17 @@
+.env
+__pycache__/
+*.pyc
+.venv/
+
+# записи с микрофона — личные, в git не место
+*.wav
+
+# кеш моделей и инструментов
+.pytest_cache/
+.ruff_cache/
+models/
+.DS_Store
+
+# сборка приложения
+build/
+dist/

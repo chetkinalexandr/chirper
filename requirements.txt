@@ -1,0 +1,27 @@
+# Рабочая связка для Apple Silicon и Python 3.10.
+# Версии зафиксированы намеренно: совместимость GigaAM чувствительна к ним.
+
+torch==2.13.0
+torchaudio==2.11.0
+
+# ⚠️ Строго 4.x. На transformers 5.x модель не поднимается:
+# "Tensor on device cpu is not on the expected device meta!" — новые версии
+# создают модули на meta-устройстве, а кастомный код GigaAM этого не ждёт.
+transformers==4.57.1
+huggingface_hub==0.36.2
+
+# Нужны самой модели (modeling_gigaam.py импортирует их напрямую).
+# Имена пакетов не совпадают с именами импортов: transformers советует
+# `pip install hydra omegaconf` — это неверные имена.
+hydra-core==1.3.2
+omegaconf==2.3.0
+
+sentencepiece==0.2.2
+numpy==2.2.6
+
+pytest==9.1.1
+ruff==0.16.1
+pyinstaller==6.21.0
+
+# Пакет `gigaam` с PyPI намеренно НЕ используется: версия 0.1.0 пинит
+# torch<=2.5.1 и рассчитан на GigaAM v2. Для v3 — путь через transformers.
