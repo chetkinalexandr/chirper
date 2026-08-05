@@ -517,6 +517,11 @@ private final class RecordingOverlay {
     private let effect = NSVisualEffectView()
     private let shadowView = NSView()
     private let container = NSView()
+    // Страховка на случай, если кто-то встанет на наш уровень: внутри одного
+    // уровня выигрывает показавшийся последним, а одного orderFrontRegardless
+    // при старте записи не хватает — держим панель наверху всю запись.
+    private var topmostTimer: Timer?
+    private var spaceObserver: NSObjectProtocol?
 
     init(settings: OverlayPreferences) {
         self.settings = settings
@@ -526,12 +531,18 @@ private final class RecordingOverlay {
             backing: .buffered,
             defer: false
         )
-        panel.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.screenSaverWindow)))
+        // screenSaverWindow (1000) занят чужими оверлеями — там же сидит Wispr
+        // Flow. Внутри одного уровня выигрывает показавшийся последним, поэтому
+        // берём assistiveTechHighWindow (1500): выше всех обычных оверлеев.
+        panel.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.assistiveTechHighWindow)))
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.ignoresMouseEvents = true
         panel.becomesKeyOnlyIfNeeded = true
-        panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
+        // .stationary конфликтует с .canJoinAllSpaces: панель должна следовать
+        // за активным Space, а не оставаться на своём. .ignoresCycle убирает
+        // её из Cmd-Tab / Exposé.
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
         // Стандартная NSPanel-тень слишком тяжёлая на прозрачной пилюле.
         panel.hasShadow = false
 
@@ -598,6 +609,44 @@ private final class RecordingOverlay {
     func show() {
         position()
         panel.orderFrontRegardless()
+        startKeepingOnTop()
+    }
+
+    private func startKeepingOnTop() {
+        stopKeepingOnTop()
+        // Секунда — незаметно для глаза, но не нагружает оконный сервер.
+        let timer = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
+            self?.raise()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        topmostTimer = timer
+
+        // Переключение Space роняет панель под окна нового рабочего стола.
+        spaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.activeSpaceDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.position()
+            self?.raise()
+        }
+    }
+
+    private func stopKeepingOnTop() {
+        topmostTimer?.invalidate()
+        topmostTimer = nil
+        if let observer = spaceObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+            spaceObserver = nil
+        }
+    }
+
+    private func raise() {
+        guard panel.isVisible else { return }
+        // Переприсваивание level вместе с orderFrontRegardless возвращает панель
+        // поверх окон, вставших выше нас внутри того же уровня.
+        panel.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.assistiveTechHighWindow)))
+        panel.orderFrontRegardless()
     }
 
     private func position() {
@@ -610,7 +659,10 @@ private final class RecordingOverlay {
         ))
     }
 
-    func hide() { panel.orderOut(nil) }
+    func hide() {
+        stopKeepingOnTop()
+        panel.orderOut(nil)
+    }
     func update(level: Float) { equalizer.update(level: level) }
 }
 
