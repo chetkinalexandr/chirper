@@ -9,12 +9,20 @@ from __future__ import annotations
 import contextlib
 import json
 import sys
+import time
 import wave
 from pathlib import Path
 
 import numpy as np
 
 from asr import ЧАСТОТА, GigaAM
+
+# Простаивающий воркер держит ~1 ГБ, который macOS охотно вытесняет в swap:
+# после долгой паузы первое распознавание тратит секунды на возврат страниц
+# с диска. Поэтому греем модель в начале записи — пока человек говорит.
+# Порог: греть, только если модель давно не трогали, иначе диктовка подряд
+# впустую жжёт батарею.
+ПОРОГ_ПРОГРЕВА = 120.0
 
 
 def загрузить_wav(путь: Path) -> np.ndarray:
@@ -52,20 +60,34 @@ def main() -> int:
         ответить(event="failed", error=str(ошибка))
         return 1
 
+    последнее_обращение = time.monotonic()
+
     ответить(event="ready", variant="e2e_rnnt")
     for строка in sys.stdin:
         запрос = None
         try:
             запрос = json.loads(строка)
-            if запрос.get("command") == "shutdown":
+            команда = запрос.get("command")
+            if команда == "shutdown":
                 return 0
-            if запрос.get("command") != "transcribe":
+
+            if команда == "warmup":
+                # Ответа нет намеренно: приложение шлёт прогрев и забывает о нём,
+                # иначе пришлось бы учить разбор событий лишнему случаю.
+                if time.monotonic() - последнее_обращение >= ПОРОГ_ПРОГРЕВА:
+                    with contextlib.redirect_stdout(sys.stderr):
+                        движок.распознать(np.zeros(ЧАСТОТА, dtype=np.float32))
+                    последнее_обращение = time.monotonic()
+                continue
+
+            if команда != "transcribe":
                 raise ValueError("неизвестная команда")
 
             идентификатор = запрос.get("id")
             путь = Path(запрос["audio_path"])
             with contextlib.redirect_stdout(sys.stderr):
                 текст = движок.распознать(загрузить_wav(путь))
+            последнее_обращение = time.monotonic()
             ответить(event="result", id=идентификатор, text=текст)
         except Exception as ошибка:
             ответить(

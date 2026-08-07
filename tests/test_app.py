@@ -1,5 +1,7 @@
 """Автоматические проверки продуктовой логики без микрофона и загрузки модели."""
 
+import io
+import json
 import plistlib
 import re
 import sys
@@ -12,8 +14,35 @@ import pytest
 КОРЕНЬ = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(КОРЕНЬ))
 
+import asr_worker  # noqa: E402
 from asr import ЧАСТОТА, GigaAM, нарезать  # noqa: E402
 from asr_worker import загрузить_wav  # noqa: E402
+
+
+class ДвижокЗаглушка:
+    """Считает вызовы вместо настоящего распознавания."""
+
+    def __init__(self, текст="привет"):
+        self.текст = текст
+        self.вызовы = 0
+
+    def прогреть(self):
+        pass
+
+    def распознать(self, звук):
+        self.вызовы += 1
+        return self.текст
+
+
+def прогнать_воркер(monkeypatch, capsys, команды, движок, часы=None):
+    """Прогнать цикл main() на списке команд, вернуть разобранные ответы."""
+    monkeypatch.setattr(asr_worker, "GigaAM", lambda: движок)
+    monkeypatch.setattr("sys.stdin", io.StringIO("".join(json.dumps(к) + "\n" for к in команды)))
+    if часы is not None:
+        monkeypatch.setattr(asr_worker.time, "monotonic", часы)
+    asr_worker.main()
+    вывод = capsys.readouterr().out
+    return [json.loads(с) for с in вывод.splitlines() if с.strip()]
 
 
 def test_проект_готов_к_публикации():
@@ -88,3 +117,56 @@ def test_worker_читает_pcm16_wav(tmp_path):
     звук = загрузить_wav(путь)
     assert звук.dtype == np.float32
     np.testing.assert_allclose(звук, исходный.astype(np.float32) / 32768.0)
+
+
+def test_прогрев_молчит_и_будит_модель(monkeypatch, capsys):
+    """Прогрев трогает модель, но не отвечает: приложение его ответа не ждёт."""
+    движок = ДвижокЗаглушка()
+    время = iter([0.0, 1000.0, 1000.0])
+    ответы = прогнать_воркер(
+        monkeypatch, capsys, [{"command": "warmup"}], движок, часы=lambda: next(время)
+    )
+    assert движок.вызовы == 1
+    assert [о["event"] for о in ответы] == ["ready"]
+
+
+def test_частый_прогрев_не_гоняет_модель_впустую(monkeypatch, capsys):
+    """Диктовка подряд не должна жечь батарею повторными прогревами."""
+    движок = ДвижокЗаглушка()
+    ответы = прогнать_воркер(
+        monkeypatch, capsys, [{"command": "warmup"}], движок, часы=lambda: 0.0
+    )
+    assert движок.вызовы == 0
+    assert [о["event"] for о in ответы] == ["ready"]
+
+
+def test_прогрев_не_ломает_распознавание(monkeypatch, capsys, tmp_path):
+    """После прогрева transcribe отвечает как обычно — id и текст на месте."""
+    путь = tmp_path / "recording.wav"
+    with wave.open(str(путь), "wb") as файл:
+        файл.setnchannels(1)
+        файл.setsampwidth(2)
+        файл.setframerate(ЧАСТОТА)
+        файл.writeframes(np.zeros(ЧАСТОТА, dtype="<i2").tobytes())
+
+    движок = ДвижокЗаглушка("готово")
+    ответы = прогнать_воркер(
+        monkeypatch,
+        capsys,
+        [
+            {"command": "warmup"},
+            {"command": "transcribe", "id": "abc", "audio_path": str(путь)},
+        ],
+        движок,
+        часы=lambda: 10_000.0,
+    )
+    результат = [о for о in ответы if о["event"] == "result"]
+    assert результат == [{"event": "result", "id": "abc", "text": "готово"}]
+
+
+def test_неизвестная_команда_остаётся_ошибкой(monkeypatch, capsys):
+    """Опечатка в команде не должна молча проглатываться как прогрев."""
+    ответы = прогнать_воркер(
+        monkeypatch, capsys, [{"command": "warmupp"}], ДвижокЗаглушка()
+    )
+    assert [о["event"] for о in ответы] == ["ready", "error"]

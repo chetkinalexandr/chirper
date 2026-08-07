@@ -74,6 +74,17 @@ private final class ASRWorker {
         try process.run()
     }
 
+    /// Подтянуть модель обратно в память, пока идёт запись.
+    ///
+    /// Простаивающий воркер держит ~1 ГБ, который macOS вытесняет в swap, и
+    /// тогда первое распознавание начинается с многосекундного чтения с диска.
+    /// Прогрев идёт параллельно речи, так что к «стоп» модель уже горячая.
+    /// Ошибку глотаем: прогрев — оптимизация, его провал не должен мешать
+    /// записи, а реальная поломка канала всплывёт на transcribe.
+    func warmup() {
+        try? send(["command": "warmup"])
+    }
+
     func transcribe(_ url: URL) throws {
         let id = UUID().uuidString
         pendingFiles[id] = url
@@ -1070,6 +1081,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             overlay.show()
             setState(.recording)
             play("Tink")
+            // Греем сразу после старта записи: дальше время всё равно уходит
+            // на речь, и модель успевает вернуться из swap параллельно ей.
+            worker?.warmup()
         } catch {
             setState(.failed(error.localizedDescription))
         }
