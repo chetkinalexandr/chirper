@@ -34,12 +34,10 @@ class ДвижокЗаглушка:
         return self.текст
 
 
-def прогнать_воркер(monkeypatch, capsys, команды, движок, часы=None):
+def прогнать_воркер(monkeypatch, capsys, команды, движок):
     """Прогнать цикл main() на списке команд, вернуть разобранные ответы."""
     monkeypatch.setattr(asr_worker, "GigaAM", lambda: движок)
     monkeypatch.setattr("sys.stdin", io.StringIO("".join(json.dumps(к) + "\n" for к in команды)))
-    if часы is not None:
-        monkeypatch.setattr(asr_worker.time, "monotonic", часы)
     asr_worker.main()
     вывод = capsys.readouterr().out
     return [json.loads(с) for с in вывод.splitlines() if с.strip()]
@@ -122,21 +120,18 @@ def test_worker_читает_pcm16_wav(tmp_path):
 def test_прогрев_молчит_и_будит_модель(monkeypatch, capsys):
     """Прогрев трогает модель, но не отвечает: приложение его ответа не ждёт."""
     движок = ДвижокЗаглушка()
-    время = iter([0.0, 1000.0, 1000.0])
-    ответы = прогнать_воркер(
-        monkeypatch, capsys, [{"command": "warmup"}], движок, часы=lambda: next(время)
-    )
+    ответы = прогнать_воркер(monkeypatch, capsys, [{"command": "warmup"}], движок)
     assert движок.вызовы == 1
     assert [о["event"] for о in ответы] == ["ready"]
 
 
-def test_частый_прогрев_не_гоняет_модель_впустую(monkeypatch, capsys):
-    """Диктовка подряд не должна жечь батарею повторными прогревами."""
+def test_прогрев_идёт_каждый_раз(monkeypatch, capsys):
+    """Порога намеренно нет: проход стоит 0,19 с, а вытеснение идёт быстро."""
     движок = ДвижокЗаглушка()
     ответы = прогнать_воркер(
-        monkeypatch, capsys, [{"command": "warmup"}], движок, часы=lambda: 0.0
+        monkeypatch, capsys, [{"command": "warmup"}] * 3, движок
     )
-    assert движок.вызовы == 0
+    assert движок.вызовы == 3
     assert [о["event"] for о in ответы] == ["ready"]
 
 
@@ -158,7 +153,6 @@ def test_прогрев_не_ломает_распознавание(monkeypatch
             {"command": "transcribe", "id": "abc", "audio_path": str(путь)},
         ],
         движок,
-        часы=lambda: 10_000.0,
     )
     результат = [о for о in ответы if о["event"] == "result"]
     assert результат == [{"event": "result", "id": "abc", "text": "готово"}]
