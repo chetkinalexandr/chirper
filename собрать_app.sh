@@ -45,7 +45,6 @@ else
     for SOURCE in \
         "$PROJECT/asr_worker.py" \
         "$PROJECT/asr.py" \
-        "$PROJECT/pyannote/__init__.py" \
         "$PROJECT/requirements.txt"; do
         if [ "$SOURCE" -nt "$WORKER_DIST/VoiceNotesASR" ]; then
             REBUILD_WORKER=1
@@ -68,21 +67,15 @@ if [ "$REBUILD_WORKER" -eq 1 ]; then
         --workpath "$BUILD_ROOT/pyinstaller" \
         --specpath "$BUILD_ROOT" \
         --paths "$PROJECT" \
-        --collect-all hydra \
-        --collect-all omegaconf \
-        --collect-all sentencepiece \
-        --hidden-import pyannote \
-        --hidden-import torchaudio \
+        --copy-metadata onnx-asr \
+        --copy-metadata huggingface_hub \
+        --collect-data onnx_asr \
         --exclude-module AppKit \
-        --exclude-module av \
-        --exclude-module lightning \
         --exclude-module matplotlib \
-        --exclude-module onnxruntime \
         --exclude-module pandas \
         --exclude-module PIL \
         --exclude-module scipy \
         --exclude-module sklearn \
-        --exclude-module sqlalchemy \
         --log-level WARN \
         "$PROJECT/asr_worker.py"
 else

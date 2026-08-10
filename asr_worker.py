@@ -95,4 +95,9 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    # В PyInstaller-сборке дочерние процессы multiprocessing перезапускают
+    # главный скрипт: без freeze_support воркер отвечал «ready» несколько раз.
+    import multiprocessing
+
+    multiprocessing.freeze_support()
     sys.exit(main())

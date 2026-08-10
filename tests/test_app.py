@@ -53,7 +53,6 @@ def test_проект_готов_к_публикации():
         "native/Info.plist",
         "native/VoiceNotes.icns",
         "asr_worker.py",
-        "pyannote/__init__.py",
     ):
         assert (КОРЕНЬ / имя).is_file(), f"нет {имя}"
     игнор = (КОРЕНЬ / ".gitignore").read_text(encoding="utf-8")

@@ -5,18 +5,18 @@ covered by the VoiceNotes MIT license and remain subject to their own terms.
 
 | Component | Purpose | License |
 | --- | --- | --- |
-| [GigaAM v3](https://huggingface.co/ai-sage/GigaAM-v3) | Speech recognition model and remote model code | MIT |
-| [PyTorch](https://github.com/pytorch/pytorch) and [TorchAudio](https://github.com/pytorch/audio) | Neural-network inference and audio transforms | BSD-style |
-| [Transformers](https://github.com/huggingface/transformers) and [huggingface_hub](https://github.com/huggingface/huggingface_hub) | Loading the pinned model revision | Apache-2.0 |
-| [Hydra](https://github.com/facebookresearch/hydra), [OmegaConf](https://github.com/omry/omegaconf) | Model configuration | MIT / BSD-3-Clause |
-| [SentencePiece](https://github.com/google/sentencepiece) | Tokenization | Apache-2.0 |
+| [GigaAM v3](https://huggingface.co/ai-sage/GigaAM-v3) | Speech recognition model | MIT |
+| [gigaam-v3-onnx](https://huggingface.co/istupakov/gigaam-v3-onnx) | ONNX export of the model (int8) | MIT |
+| [onnx-asr](https://github.com/istupakov/onnx-asr) | Model loading and RNN-T decoding | MIT |
+| [ONNX Runtime](https://github.com/microsoft/onnxruntime) | Neural-network inference | MIT |
+| [huggingface_hub](https://github.com/huggingface/huggingface_hub) | Downloading the pinned model revision | Apache-2.0 |
 | [NumPy](https://github.com/numpy/numpy) | Audio arrays | BSD-3-Clause |
 | [PyInstaller](https://github.com/pyinstaller/pyinstaller) | Standalone worker packaging | GPL-2.0-or-later with the PyInstaller exception |
 | [Python](https://www.python.org/) | Embedded runtime | PSF License Agreement |
 
 The dependency versions used for a build are pinned in `requirements.txt`.
-The GigaAM `e2e_rnnt` model is pinned to commit
-`7655ad717f8122257385bb4b2f373db3697e8680`; its files are downloaded from
+The `gigaam-v3-onnx` `e2e_rnnt` int8 export is pinned to commit
+`322c3b29492673eb7d0b434bfa9dfb8653e34d02`; its files are downloaded from
 Hugging Face on first launch and are not stored in this repository or DMG.
 
 Redistributors should review the complete license texts shipped by the

@@ -57,31 +57,41 @@ def нарезать(звук: np.ndarray, предел_секунд: float = П
 
 
 class GigaAM(Движок):
-    """GigaAM v3 e2e_rnnt через transformers + trust_remote_code.
+    """GigaAM v3 e2e_rnnt (int8) через ONNX Runtime + onnx-asr.
 
-    ⚠️ transformers строго 4.x: на 5.x модель не поднимается вообще
-    («Tensor on device cpu is not on the expected device meta!»).
+    Переход с PyTorch (замер 2026-08-10, ЗАДАЧИ.md): качество на живом
+    голосе идентично до десятой доли процента WER, память вдвое меньше,
+    загрузка 0,4 с против 4,1 с. Пути ужатия внутри PyTorch закрыты: на
+    CPU Apple Silicon у fp16/int8 нет дороги в Accelerate.
 
-    Ветка e2e_rnnt выбрана для диктовки: она сама расставляет
-    пунктуацию и нормализует числа. Точная ревизия закреплена,
-    так как репозиторий модели выполняет удалённый Python-код.
+    Ревизия закреплена ради воспроизводимости: качество int8-экспорта
+    нигде не опубликовано, мы проверяли конкретный снапшот.
+
+    ⚠️ CoreMLExecutionProvider на этой модели падает — только CPU.
+    ⚠️ Нарезка по 20 с обязана остаться: int8-квант соседней модели
+    (Parakeet, onnx-asr#126) деградирует на кусках длиннее.
     """
 
-    МОДЕЛЬ = "ai-sage/GigaAM-v3"
-    РЕВИЗИЯ = "7655ad717f8122257385bb4b2f373db3697e8680"
+    МОДЕЛЬ = "istupakov/gigaam-v3-onnx"
+    РЕВИЗИЯ = "322c3b29492673eb7d0b434bfa9dfb8653e34d02"
+    ФАЙЛЫ = ("config.json", "v3_e2e_rnnt_*.int8.onnx", "v3_e2e_rnnt_vocab.txt")
 
     def __init__(self):
         self._модель = None
-        self._внутренняя = None
 
     def загрузить(self) -> None:
-        from transformers import AutoModel
+        import onnx_asr
+        from huggingface_hub import snapshot_download
 
-        self._модель = AutoModel.from_pretrained(
-            self.МОДЕЛЬ, revision=self.РЕВИЗИЯ, trust_remote_code=True
+        путь = snapshot_download(
+            self.МОДЕЛЬ, revision=self.РЕВИЗИЯ, allow_patterns=list(self.ФАЙЛЫ)
         )
-        self._модель.eval()
-        self._внутренняя = self._модель.model
+        self._модель = onnx_asr.load_model(
+            "gigaam-v3-e2e-rnnt",
+            путь,
+            quantization="int8",
+            providers=["CPUExecutionProvider"],
+        )
 
     def прогреть(self) -> None:
         """Прогнать пустышку, чтобы первый настоящий вызов не был медленным.
@@ -94,33 +104,20 @@ class GigaAM(Движок):
         self.распознать(np.zeros(ЧАСТОТА, dtype=np.float32))
 
     def распознать(self, звук: np.ndarray) -> str:
-        # Вход проверяем до импорта torch: тогда ошибка вызова видна сразу и
-        # не зависит от того, установлены ли тяжёлые зависимости.
+        # Вход проверяем до загрузки модели: тогда ошибка вызова видна сразу
+        # и не зависит от того, установлены ли тяжёлые зависимости.
         # float32 строго: на int16 движок молча возвращает пустую строку.
         if звук.dtype != np.float32:
             raise ValueError(f"нужен float32, получен {звук.dtype}")
         if звук.ndim > 1:
             звук = звук.mean(axis=1)
 
-        import torch
-
         if self._модель is None:
             self.загрузить()
 
-        устройство = next(self._внутренняя.parameters()).device
-        тип = next(self._внутренняя.parameters()).dtype
-
         части = []
         for кусок in нарезать(звук):
-            тензор = torch.from_numpy(кусок).to(устройство).to(тип).unsqueeze(0)
-            длина = torch.full([1], тензор.shape[-1], device=устройство)
-            with torch.inference_mode():
-                закодировано, длина_кода = self._внутренняя.forward(тензор, длина)
-                результат = self._внутренняя.decoding.decode(
-                    self._внутренняя.head, закодировано, длина_кода
-                )[0]
-            # CTC-варианты отдают (текст, токены), RNNT — просто строку.
-            текст = результат[0] if isinstance(результат, tuple) else результат
+            текст = self._модель.recognize(кусок, sample_rate=ЧАСТОТА)
             if текст.strip():
                 части.append(текст.strip())
 
