@@ -63,7 +63,11 @@ def wer(эталон: str, гипотеза: str) -> tuple[float, int, int, int]
 
 
 def записать() -> None:
-    """Записать голос с микрофона до Ctrl+C."""
+    """Записать голос с микрофона; остановка — клавишей Enter.
+
+    Приём звука идёт в колбэке на потоке PortAudio, а главный поток просто
+    ждёт Enter: блокирующее чтение аудио в главном потоке глотало Ctrl+C.
+    """
     try:
         import sounddevice as sd
     except ImportError:
@@ -78,16 +82,17 @@ def записать() -> None:
     if путь.exists() and input(f"{путь.name} уже есть, перезаписать? [y/N] ").lower() != "y":
         return
 
-    print("\nчитайте текст. Ctrl+C — закончить\n")
     куски: list[np.ndarray] = []
-    поток = sd.InputStream(samplerate=ЧАСТОТА, channels=1, dtype="int16")
-    try:
-        with поток:
-            while True:
-                данные, _ = поток.read(1024)
-                куски.append(данные.copy())
-    except KeyboardInterrupt:
-        pass
+
+    def приём(данные, кадров, время, статус):
+        куски.append(данные.copy())
+
+    print("\nзапись пошла — читайте текст. Enter — закончить\n")
+    with sd.InputStream(samplerate=ЧАСТОТА, channels=1, dtype="int16", callback=приём):
+        try:
+            input()
+        except (KeyboardInterrupt, EOFError):
+            pass
 
     звук = np.concatenate(куски) if куски else np.zeros((0, 1), dtype=np.int16)
     with wave.open(str(путь), "wb") as файл:
