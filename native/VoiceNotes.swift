@@ -380,6 +380,9 @@ private final class EqualizerView: NSView {
     private var frameNumber: CGFloat = 0
     var borderWidth: CGFloat = 0.5
     var borderOpacity: CGFloat = 0.30
+    // Красная точка слева: запись зафиксирована двойным нажатием и идёт
+    // без удержания клавиши. Без индикации режимы неотличимы.
+    var locked = false
 
     func update(level: Float) {
         self.level = min(1, max(0, level))
@@ -413,6 +416,18 @@ private final class EqualizerView: NSView {
                 height: height
             )
             NSBezierPath(roundedRect: rect, xRadius: 2.5, yRadius: 2.5).fill()
+        }
+
+        if locked {
+            let diameter: CGFloat = 6
+            let dot = NSRect(
+                x: bounds.minX + bounds.height / 2 - diameter / 2,
+                y: bounds.midY - diameter / 2,
+                width: diameter,
+                height: diameter
+            )
+            NSColor.systemRed.setFill()
+            NSBezierPath(ovalIn: dot).fill()
         }
     }
 }
@@ -671,9 +686,18 @@ private final class RecordingOverlay {
     }
 
     func hide() {
+        // Каждый показ начинается незафиксированным: фиксация включается
+        // явно двойным нажатием, а скрытие всегда завершает запись.
+        setLocked(false)
         stopKeepingOnTop()
         panel.orderOut(nil)
     }
+
+    func setLocked(_ flag: Bool) {
+        equalizer.locked = flag
+        equalizer.needsDisplay = true
+    }
+
     func update(level: Float) { equalizer.update(level: level) }
 }
 
@@ -1002,12 +1026,31 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var recordingURL: URL?
     private var soundsEnabled = true
 
+    // Жест хоткея. Удержание — запись, пока держишь (как всегда было).
+    // Два быстрых нажатия фиксируют запись: она идёт без удержания, следующее
+    // нажатие — стоп. Запись стартует сразу по первому нажатию, порог ждёт
+    // только второе нажатие — иначе каждая диктовка начиналась бы с задержки.
+    private enum HotkeyGesture {
+        case idle        // записи нет
+        case held        // запись на удержании
+        case tapPending  // клавишу быстро отпустили — ждём второе нажатие
+        case locked      // запись зафиксирована двойным нажатием
+    }
+
+    private var gesture = HotkeyGesture.idle
+    private var pressStartedAt = Date.distantPast
+    private var tapTimer: Timer?
+    private let tapThreshold: TimeInterval = 0.35
+    // Страховка от забытой записи: фиксация сама завершается распознаванием.
+    private let lockedRecordingLimit: TimeInterval = 10 * 60
+    private var lockLimitTimer: Timer?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         configureMenu()
         requestAccessibility()
         recorder.onLevel = { [weak self] level in self?.overlay.update(level: level) }
-        hotkey.onPress = { [weak self] in self?.startRecording() }
-        hotkey.onRelease = { [weak self] in self?.stopRecording() }
+        hotkey.onPress = { [weak self] in self?.hotkeyPressed() }
+        hotkey.onRelease = { [weak self] in self?.hotkeyReleased() }
         hotkey.start()
         recorder.requestPermission { _ in }
         startWorker()
@@ -1068,6 +1111,84 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         self.worker = worker
         do { try worker.start() } catch { setState(.failed(error.localizedDescription)) }
+    }
+
+    private func hotkeyPressed() {
+        switch gesture {
+        case .idle:
+            pressStartedAt = Date()
+            startRecording()
+            // Запись могла не начаться (модель грузится, нет микрофона) —
+            // тогда жест не переводим, иначе появится фантомное состояние.
+            if case .recording = state { gesture = .held }
+        case .tapPending:
+            tapTimer?.invalidate()
+            tapTimer = nil
+            gesture = .locked
+            overlay.setLocked(true)
+            startLockLimitTimer()
+        case .locked:
+            finishLockedRecording()
+        case .held:
+            // Невозможно: повторный press приходит только после release.
+            break
+        }
+    }
+
+    private func hotkeyReleased() {
+        switch gesture {
+        case .held:
+            if Date().timeIntervalSince(pressStartedAt) < tapThreshold {
+                // Быстрое отпускание — возможно, первая половина двойного
+                // нажатия. Запись продолжается, ждём второе нажатие.
+                gesture = .tapPending
+                let timer = Timer(timeInterval: tapThreshold, repeats: false) { [weak self] _ in
+                    guard let self, case .tapPending = self.gesture else { return }
+                    self.tapTimer = nil
+                    self.gesture = .idle
+                    // Одиночный быстрый тап — случайность: раньше такая запись
+                    // отсеивалась порогом длительности, но за время ожидания
+                    // второго нажатия она успевает его перерасти. Отменяем явно.
+                    self.cancelRecording()
+                }
+                RunLoop.main.add(timer, forMode: .common)
+                tapTimer = timer
+            } else {
+                gesture = .idle
+                stopRecording()
+            }
+        case .locked, .tapPending, .idle:
+            // Отпускание второго нажатия (фиксация) и третьего (стоп) —
+            // не команды: иначе фиксация выключалась бы сразу после включения.
+            break
+        }
+    }
+
+    private func finishLockedRecording() {
+        lockLimitTimer?.invalidate()
+        lockLimitTimer = nil
+        gesture = .idle
+        stopRecording()
+    }
+
+    private func startLockLimitTimer() {
+        lockLimitTimer?.invalidate()
+        let timer = Timer(timeInterval: lockedRecordingLimit, repeats: false) { [weak self] _ in
+            guard let self, case .locked = self.gesture else { return }
+            self.lockLimitTimer = nil
+            self.finishLockedRecording()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        lockLimitTimer = timer
+    }
+
+    private func cancelRecording() {
+        guard case .recording = state, let url = recordingURL else { return }
+        _ = recorder.stop()
+        overlay.hide()
+        recordingURL = nil
+        try? FileManager.default.removeItem(at: url)
+        setState(.ready)
     }
 
     private func startRecording() {
