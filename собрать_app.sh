@@ -38,6 +38,33 @@ if [ ! -x "$PYINSTALLER" ]; then
 fi
 
 mkdir -p "$BUILD_ROOT" "$DIST"
+
+# Иконка приложения собирается из векторного мастера native/дизайн/Chirper.svg.
+# .icns держится в репозитории готовым, поэтому пересобираем только когда
+# мастер новее: обычная сборка не платит за отрисовку десяти размеров.
+ICON_MASTER="$PROJECT/native/дизайн/Chirper.svg"
+ICON_OUTPUT="$PROJECT/native/Chirper.icns"
+if [ -f "$ICON_MASTER" ] && { [ ! -f "$ICON_OUTPUT" ] || [ "$ICON_MASTER" -nt "$ICON_OUTPUT" ]; }; then
+    echo "Собираю иконку из ${ICON_MASTER}…"
+    ICON_TOOL="$BUILD_ROOT/СобратьИконку"
+    if [ ! -x "$ICON_TOOL" ] || [ "$PROJECT/native/инструменты/СобратьИконку.swift" -nt "$ICON_TOOL" ]; then
+        xcrun swiftc -O -target "$ARCH-apple-macos13.0" \
+            "$PROJECT/native/инструменты/СобратьИконку.swift" -o "$ICON_TOOL"
+    fi
+    ICONSET="$BUILD_ROOT/Chirper.iconset"
+    rm -rf "$ICONSET"
+    mkdir -p "$ICONSET"
+    for SPEC in \
+        "16:icon_16x16" "32:icon_16x16@2x" \
+        "32:icon_32x32" "64:icon_32x32@2x" \
+        "128:icon_128x128" "256:icon_128x128@2x" \
+        "256:icon_256x256" "512:icon_256x256@2x" \
+        "512:icon_512x512" "1024:icon_512x512@2x"; do
+        "$ICON_TOOL" "$ICON_MASTER" "$ICONSET/${SPEC##*:}.png" "${SPEC%%:*}"
+    done
+    iconutil -c icns "$ICONSET" -o "$ICON_OUTPUT"
+    rm -rf "$ICONSET"
+fi
 REBUILD_WORKER=0
 if [ ! -x "$WORKER_DIST/ChirperASR" ]; then
     REBUILD_WORKER=1
@@ -93,6 +120,24 @@ fi
 mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources"
 cp "$PROJECT/native/Info.plist" "$CONTENTS/Info.plist"
 cp "$PROJECT/native/Chirper.icns" "$CONTENTS/Resources/Chirper.icns"
+
+# Значки строки меню кладём в бандл как PDF: векторный формат, который AppKit
+# читает напрямую и масштабирует без потерь под любой масштаб экрана.
+ICON_TOOL="$BUILD_ROOT/СобратьИконку"
+if [ ! -x "$ICON_TOOL" ]; then
+    xcrun swiftc -O -target "$ARCH-apple-macos13.0" \
+        "$PROJECT/native/инструменты/СобратьИконку.swift" -o "$ICON_TOOL"
+fi
+mkdir -p "$CONTENTS/Resources/Значки"
+for STATE in loading ready recording locked transcribing failed; do
+    SOURCE="$PROJECT/native/дизайн/menu-$STATE.svg"
+    if [ ! -f "$SOURCE" ]; then
+        echo "Не найден значок строки меню: $SOURCE"
+        exit 1
+    fi
+    # @2x от 18 pt: Retina-разрешение строки меню.
+    "$ICON_TOOL" "$SOURCE" "$CONTENTS/Resources/Значки/menu-$STATE.png" 36
+done
 cp "$PROJECT/LICENSE" "$CONTENTS/Resources/LICENSE.txt"
 cp "$PROJECT/THIRD_PARTY_NOTICES.md" "$CONTENTS/Resources/THIRD_PARTY_NOTICES.md"
 cp -R "$WORKER_DIST" "$CONTENTS/Resources/ASR"

@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="молочное-стекло" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="0.52" stop-color="#F4F0E8"/>
+      <stop offset="1" stop-color="#F4F0E8"/>
+    </linearGradient>
+    <linearGradient id="золото" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFE6A3"/>
+      <stop offset="0.48" stop-color="#D7AA4E"/>
+      <stop offset="1" stop-color="#8C6428"/>
+    </linearGradient>
+    <radialGradient id="рубин" cx="36%" cy="30%" r="72%">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.72"/>
+      <stop offset="0.16" stop-color="#C92F3D"/>
+      <stop offset="1" stop-color="#C92F3D"/>
+    </radialGradient>
+    <clipPath id="маска-сквиркла">
+      <path d="M512 48C748 48 838 48 904 120C970 192 970 294 970 512C970 730 970 832 904 904C838 976 748 976 512 976C276 976 186 976 120 904C54 832 54 730 54 512C54 294 54 192 120 120C186 48 276 48 512 48Z"/>
+    </clipPath>
+  </defs>
+
+  <g id="корпус">
+    <path d="M512 48C748 48 838 48 904 120C970 192 970 294 970 512C970 730 970 832 904 904C838 976 748 976 512 976C276 976 186 976 120 904C54 832 54 730 54 512C54 294 54 192 120 120C186 48 276 48 512 48Z" fill="url(#молочное-стекло)"/>
+    <path d="M512 68C738 68 825 68 888 136C950 204 950 302 950 512C950 722 950 820 888 888C825 956 738 956 512 956C286 956 199 956 136 888C74 820 74 722 74 512C74 302 74 204 136 136C199 68 286 68 512 68Z" fill="none" stroke="#FFFFFF" stroke-width="10" stroke-opacity="0.72"/>
+    <g clip-path="url(#маска-сквиркла)" opacity="0.28">
+      <ellipse cx="332" cy="235" rx="360" ry="250" fill="#FFFFFF"/>
+    </g>
+    <path fill="url(#золото)" fill-rule="evenodd" d="M512 274A294 294 0 1 1 512 862A294 294 0 1 1 512 274ZM512 316A252 252 0 1 0 512 820A252 252 0 1 0 512 316Z"/>
+  </g>
+
+  <g id="петля">
+    <path fill="url(#золото)" fill-rule="evenodd" d="M512 142A88 60 0 1 1 512 262A88 60 0 1 1 512 142ZM512 174A53 28 0 1 0 512 230A53 28 0 1 0 512 174Z"/>
+    <rect x="490" y="246" width="44" height="52" rx="12" fill="url(#золото)"/>
+  </g>
+
+  <g id="волна" fill="url(#золото)">
+    <rect x="326" y="526" width="34" height="96" rx="17"/>
+    <rect x="408" y="482" width="34" height="184" rx="17"/>
+    <rect x="495" y="438" width="34" height="272" rx="17"/>
+    <rect x="582" y="482" width="34" height="184" rx="17"/>
+    <rect x="664" y="526" width="34" height="96" rx="17"/>
+  </g>
+
+  <g id="точка-записи">
+    <circle cx="512" cy="382" r="36" fill="url(#рубин)"/>
+    <circle cx="500" cy="370" r="8" fill="#FFFFFF" fill-opacity="0.55"/>
+  </g>
+</svg>
