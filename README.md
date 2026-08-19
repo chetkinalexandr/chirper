@@ -1,4 +1,4 @@
-# VoiceNotes
+# Щебетарь (Chirper)
 
 Локальная диктовка для macOS: зажмите правый ⌥ Option, произнесите текст и
 отпустите клавишу — расшифровка появится в активном приложении. Голос
@@ -14,14 +14,14 @@
 
 ## Установка готового приложения
 
-Готовый `VoiceNotes.app` уже содержит Python runtime, PyTorch и остальные
+Готовый `Chirper.app` уже содержит Python runtime, PyTorch и остальные
 зависимости. Пользователю не нужно устанавливать Python, Xcode или Homebrew.
 
-1. Откройте `VoiceNotes-1.3.1-arm64.dmg`.
-2. Перетащите VoiceNotes в Applications.
+1. Откройте `Chirper-1.3.1-arm64.dmg`.
+2. Перетащите Chirper в Applications.
 3. При первом запуске нажмите по приложению правой кнопкой и выберите
    **Открыть**. Сборка пока не нотарифицирована Apple.
-4. Разрешите VoiceNotes доступ к Microphone и Accessibility.
+4. Разрешите Chirper доступ к Microphone и Accessibility.
 
 При первом запуске потребуется интернет: приложение скачает закреплённую
 ревизию GigaAM v3 `e2e_rnnt` размером около 428 МБ. Дальше
@@ -41,12 +41,12 @@
 другие версии PyTorch.
 
 ```bash
-cd voice-notes
+cd chirper
 python3 -m venv .venv
 .venv/bin/pip install --upgrade pip
 .venv/bin/pip install -r requirements.txt
 ./собрать_app.sh
-open dist/VoiceNotes.app
+open dist/Chirper.app
 ```
 
 Сборка не изменяет `/Applications`. Для локальной установки или создания DMG:
@@ -57,35 +57,35 @@ open dist/VoiceNotes.app
 ```
 
 Имя DMG формируется из версии приложения и архитектуры, например
-`dist/VoiceNotes-1.3.1-arm64.dmg`.
+`dist/Chirper-1.3.1-arm64.dmg`.
 
-Для автозапуска добавьте `/Applications/VoiceNotes.app` в **System Settings →
+Для автозапуска добавьте `/Applications/Chirper.app` в **System Settings →
 General → Login Items**.
 
 ## Приватность
 
 Во время диктовки нативная оболочка создаёт временный WAV и удаляет его сразу
 после распознавания. История ограничена 20 записями и хранится в
-`~/Library/Application Support/VoiceNotes/history.json`. Модель загружается из
+`~/Library/Application Support/Chirper/history.json`. Модель загружается из
 Hugging Face, но распознавание выполняется локально.
 
 ## Архитектура
 
-Нативный `VoiceNotes` владеет меню-баром, хоткеем, микрофоном, оверлеем,
+Нативный `Chirper` владеет меню-баром, хоткеем, микрофоном, оверлеем,
 буфером обмена и системными разрешениями. Он запускает встроенный автономный
-воркер `VoiceNotesASR`, который содержит Python runtime, один раз прогревает
+воркер `ChirperASR`, который содержит Python runtime, один раз прогревает
 GigaAM и принимает запросы через JSON Lines. Системный Python не используется.
 
 В исходниках остались только файлы, нужные для этой схемы:
 
-- `native/VoiceNotes.swift` — интерфейс и интеграция с macOS;
+- `native/Chirper.swift` — интерфейс и интеграция с macOS;
 - `asr_worker.py` — протокол фонового воркера и чтение WAV;
 - `asr.py` — загрузка GigaAM (ONNX int8) и нарезка длинного аудио;
 - `собрать_app.sh` — сборка `.app`, локальная установка и DMG.
 
 ## Лицензии
 
-Исходный код VoiceNotes распространяется по лицензии MIT. Модель и библиотеки
+Исходный код Chirper распространяется по лицензии MIT. Модель и библиотеки
 имеют собственные лицензии; подробности собраны в
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 

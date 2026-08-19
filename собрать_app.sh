@@ -1,5 +1,5 @@
 #!/bin/bash
-# Собрать автономный VoiceNotes.app, при необходимости установить и создать DMG.
+# Собрать автономный Chirper.app, при необходимости установить и создать DMG.
 
 set -euo pipefail
 
@@ -9,10 +9,10 @@ PYTHON="$PROJECT/.venv/bin/python"
 PYINSTALLER="$PROJECT/.venv/bin/pyinstaller"
 BUILD_ROOT="$PROJECT/build"
 DIST="$PROJECT/dist"
-APP="$DIST/VoiceNotes.app"
+APP="$DIST/Chirper.app"
 CONTENTS="$APP/Contents"
-EXECUTABLE="$CONTENTS/MacOS/VoiceNotes"
-WORKER_DIST="$BUILD_ROOT/worker-dist/VoiceNotesASR"
+EXECUTABLE="$CONTENTS/MacOS/Chirper"
+WORKER_DIST="$BUILD_ROOT/worker-dist/ChirperASR"
 INSTALL_APP=0
 CREATE_DMG=0
 
@@ -39,14 +39,14 @@ fi
 
 mkdir -p "$BUILD_ROOT" "$DIST"
 REBUILD_WORKER=0
-if [ ! -x "$WORKER_DIST/VoiceNotesASR" ]; then
+if [ ! -x "$WORKER_DIST/ChirperASR" ]; then
     REBUILD_WORKER=1
 else
     for SOURCE in \
         "$PROJECT/asr_worker.py" \
         "$PROJECT/asr.py" \
         "$PROJECT/requirements.txt"; do
-        if [ "$SOURCE" -nt "$WORKER_DIST/VoiceNotesASR" ]; then
+        if [ "$SOURCE" -nt "$WORKER_DIST/ChirperASR" ]; then
             REBUILD_WORKER=1
         fi
     done
@@ -61,7 +61,7 @@ if [ "$REBUILD_WORKER" -eq 1 ]; then
         --noconfirm \
         --clean \
         --onedir \
-        --name VoiceNotesASR \
+        --name ChirperASR \
         --target-architecture "$ARCH" \
         --distpath "$BUILD_ROOT/worker-dist" \
         --workpath "$BUILD_ROOT/pyinstaller" \
@@ -82,7 +82,7 @@ else
     echo "ASR-модуль не менялся — использую готовую сборку."
 fi
 
-if [ ! -x "$WORKER_DIST/VoiceNotesASR" ]; then
+if [ ! -x "$WORKER_DIST/ChirperASR" ]; then
     echo "PyInstaller не создал ASR-модуль"
     exit 1
 fi
@@ -92,7 +92,7 @@ if [ -d "$APP" ]; then
 fi
 mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources"
 cp "$PROJECT/native/Info.plist" "$CONTENTS/Info.plist"
-cp "$PROJECT/native/VoiceNotes.icns" "$CONTENTS/Resources/VoiceNotes.icns"
+cp "$PROJECT/native/Chirper.icns" "$CONTENTS/Resources/Chirper.icns"
 cp "$PROJECT/LICENSE" "$CONTENTS/Resources/LICENSE.txt"
 cp "$PROJECT/THIRD_PARTY_NOTICES.md" "$CONTENTS/Resources/THIRD_PARTY_NOTICES.md"
 cp -R "$WORKER_DIST" "$CONTENTS/Resources/ASR"
@@ -105,7 +105,7 @@ xcrun swiftc \
     -framework ApplicationServices \
     -framework AVFoundation \
     -framework CoreAudio \
-    "$PROJECT/native/VoiceNotes.swift" \
+    "$PROJECT/native/Chirper.swift" \
     -o "$EXECUTABLE"
 
 # Явное designated requirement сохраняет системные разрешения между
@@ -114,7 +114,7 @@ codesign \
     --force \
     --deep \
     --sign - \
-    --requirements '=designated => identifier "com.voicenotes.dictation"' \
+    --requirements '=designated => identifier "com.chirper.dictation"' \
     "$APP" >/dev/null
 codesign --verify --deep --strict "$APP"
 
@@ -122,10 +122,10 @@ echo "Собрано: $APP"
 echo "Размер: $(du -sh "$APP" | cut -f1)"
 
 if [ "$INSTALL_APP" -eq 1 ]; then
-    INSTALLED_APP="/Applications/VoiceNotes.app"
+    INSTALLED_APP="/Applications/Chirper.app"
     INSTALLED_CONTENTS="$INSTALLED_APP/Contents"
-    pkill -f "$INSTALLED_APP/Contents/MacOS/VoiceNotes" 2>/dev/null || true
-    pkill -f "$INSTALLED_APP/Contents/Resources/ASR/VoiceNotesASR" 2>/dev/null || true
+    pkill -f "$INSTALLED_APP/Contents/MacOS/Chirper" 2>/dev/null || true
+    pkill -f "$INSTALLED_APP/Contents/Resources/ASR/ChirperASR" 2>/dev/null || true
 
     # Корневую .app сохраняем: Dock и Login Items держат bookmark на её inode.
     if [ -d "$INSTALLED_CONTENTS" ]; then
@@ -141,11 +141,11 @@ fi
 
 if [ "$CREATE_DMG" -eq 1 ]; then
     VERSION="$(plutil -extract CFBundleShortVersionString raw "$PROJECT/native/Info.plist")"
-    DMG="$DIST/VoiceNotes-$VERSION-$ARCH.dmg"
-    STAGE="$(mktemp -d /tmp/voicenotes-dmg.XXXXXX)"
-    cp -R "$APP" "$STAGE/VoiceNotes.app"
+    DMG="$DIST/Chirper-$VERSION-$ARCH.dmg"
+    STAGE="$(mktemp -d /tmp/chirper-dmg.XXXXXX)"
+    cp -R "$APP" "$STAGE/Chirper.app"
     ln -s /Applications "$STAGE/Applications"
-    hdiutil create -volname VoiceNotes -srcfolder "$STAGE" -ov -format UDZO "$DMG"
+    hdiutil create -volname Chirper -srcfolder "$STAGE" -ov -format UDZO "$DMG"
     find "$STAGE" -depth -delete
     echo "Дистрибутив: $DMG ($(du -sh "$DMG" | cut -f1))"
 fi

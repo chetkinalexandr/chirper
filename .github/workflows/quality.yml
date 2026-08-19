@@ -24,11 +24,11 @@ jobs:
       - name: Validate app resources
         run: |
           plutil -lint native/Info.plist
-          file native/VoiceNotes.icns | grep -q "Mac OS X icon"
+          file native/Chirper.icns | grep -q "Mac OS X icon"
       - name: Build native launcher
         run: >-
           xcrun swiftc -swift-version 5
           -target arm64-apple-macos13.0
           -framework AppKit -framework ApplicationServices -framework AVFoundation
           -framework CoreAudio
-          native/VoiceNotes.swift -o /tmp/VoiceNotes
+          native/Chirper.swift -o /tmp/Chirper

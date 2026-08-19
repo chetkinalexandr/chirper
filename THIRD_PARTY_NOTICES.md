@@ -1,7 +1,7 @@
 # Third-party notices
 
-VoiceNotes uses the following third-party software. These components are not
-covered by the VoiceNotes MIT license and remain subject to their own terms.
+Chirper uses the following third-party software. These components are not
+covered by the Chirper MIT license and remain subject to their own terms.
 
 | Component | Purpose | License |
 | --- | --- | --- |
@@ -21,4 +21,4 @@ Hugging Face on first launch and are not stored in this repository or DMG.
 
 Redistributors should review the complete license texts shipped by the
 upstream projects. A locally built app also contains this notice and the
-VoiceNotes license in `Contents/Resources`.
+Chirper license in `Contents/Resources`.

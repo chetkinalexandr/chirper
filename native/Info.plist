@@ -5,17 +5,17 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>ru</string>
     <key>CFBundleExecutable</key>
-    <string>VoiceNotes</string>
+    <string>Chirper</string>
     <key>CFBundleIconFile</key>
-    <string>VoiceNotes</string>
+    <string>Chirper</string>
     <key>CFBundleIdentifier</key>
-    <string>com.voicenotes.dictation</string>
+    <string>com.chirper.dictation</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>VoiceNotes</string>
+    <string>Chirper</string>
     <key>CFBundleDisplayName</key>
-    <string>VoiceNotes</string>
+    <string>Chirper</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
@@ -29,7 +29,7 @@
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSMicrophoneUsageDescription</key>
-    <string>VoiceNotes записывает речь для локального распознавания. Аудио не отправляется в облако.</string>
+    <string>Chirper записывает речь для локального распознавания. Аудио не отправляется в облако.</string>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
 </dict>

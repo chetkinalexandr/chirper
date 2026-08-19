@@ -30,15 +30,15 @@ private final class ASRWorker {
     func start() throws {
         guard let resources = Bundle.main.resourceURL else {
             throw NSError(
-                domain: "VoiceNotes",
+                domain: "Chirper",
                 code: 1,
                 userInfo: [NSLocalizedDescriptionKey: "Не найдены ресурсы приложения"]
             )
         }
-        let executable = resources.appendingPathComponent("ASR/VoiceNotesASR")
+        let executable = resources.appendingPathComponent("ASR/ChirperASR")
         guard FileManager.default.isExecutableFile(atPath: executable.path) else {
             throw NSError(
-                domain: "VoiceNotes",
+                domain: "Chirper",
                 code: 2,
                 userInfo: [NSLocalizedDescriptionKey: "Не найден встроенный ASR-модуль"]
             )
@@ -181,7 +181,7 @@ private final class MicrophoneRecorder {
     func start() throws -> URL {
         previousInputDevice = AudioInputRouting.useBuiltInMicrophone()
         let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("VoiceNotes", isDirectory: true)
+            .appendingPathComponent("Chirper", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         // После аварийного завершения личное аудио не должно оставаться.
         for oldFile in (try? FileManager.default.contentsOfDirectory(
@@ -211,7 +211,7 @@ private final class MicrophoneRecorder {
         guard recorder.prepareToRecord(), recorder.record() else {
             restoreInputDevice()
             throw NSError(
-                domain: "VoiceNotes",
+                domain: "Chirper",
                 code: 2,
                 userInfo: [NSLocalizedDescriptionKey: "macOS не начала запись с микрофона"]
             )
@@ -968,7 +968,7 @@ private final class HistoryStore {
 
     init() {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let directory = base.appendingPathComponent("VoiceNotes", isDirectory: true)
+        let directory = base.appendingPathComponent("Chirper", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         url = directory.appendingPathComponent("history.json")
         if let data = try? Data(contentsOf: url) {
@@ -989,7 +989,7 @@ private final class FileLogger {
 
     private init() {
         let library = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
-        let directory = library.appendingPathComponent("Logs/VoiceNotes", isDirectory: true)
+        let directory = library.appendingPathComponent("Logs/Chirper", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         url = directory.appendingPathComponent("asr.log")
     }
@@ -1064,7 +1064,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func configureMenu() {
-        statusItem.button?.image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "VoiceNotes")
+        statusItem.button?.image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "Chirper")
         statusItem.button?.image?.isTemplate = true
 
         let menu = NSMenu()
@@ -1194,7 +1194,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private func startRecording() {
         guard case .ready = state else { return }
         guard recorder.hasPermission else {
-            setState(.failed("Нет доступа к микрофону. Разрешите его и перезапустите VoiceNotes."))
+            setState(.failed("Нет доступа к микрофону. Разрешите его и перезапустите Chirper."))
             return
         }
         do {
@@ -1352,7 +1352,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         showAlert(
-            message: "VoiceNotes",
+            message: "Chirper",
             details: details
         )
     }
@@ -1361,7 +1361,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = "Нужно разрешение Accessibility"
-        alert.informativeText = "Текст уже скопирован в буфер обмена — его можно вставить вручную. Включите VoiceNotes в разделе Privacy & Security → Accessibility."
+        alert.informativeText = "Текст уже скопирован в буфер обмена — его можно вставить вручную. Включите Chirper в разделе Privacy & Security → Accessibility."
         alert.addButton(withTitle: "Открыть настройки")
         alert.addButton(withTitle: "Позже")
         if alert.runModal() == .alertFirstButtonReturn,

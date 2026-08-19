@@ -49,9 +49,9 @@ def test_проект_готов_к_публикации():
         "README.md",
         "LICENSE",
         "THIRD_PARTY_NOTICES.md",
-        "native/VoiceNotes.swift",
+        "native/Chirper.swift",
         "native/Info.plist",
-        "native/VoiceNotes.icns",
+        "native/Chirper.icns",
         "asr_worker.py",
     ):
         assert (КОРЕНЬ / имя).is_file(), f"нет {имя}"
@@ -62,9 +62,9 @@ def test_проект_готов_к_публикации():
 
     with (КОРЕНЬ / "native/Info.plist").open("rb") as файл:
         plist = plistlib.load(файл)
-    assert plist["CFBundleExecutable"] == "VoiceNotes"
+    assert plist["CFBundleExecutable"] == "Chirper"
     assert plist["LSUIElement"] is True
-    assert "VoiceNotesProjectPath" not in plist
+    assert "ChirperProjectPath" not in plist
     pyproject = (КОРЕНЬ / "pyproject.toml").read_text(encoding="utf-8")
     version = re.search(r'^version = "([^"]+)"', pyproject, re.MULTILINE)
     assert version and version.group(1) == plist["CFBundleShortVersionString"]
