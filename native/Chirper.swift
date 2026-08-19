@@ -11,8 +11,22 @@ private enum AppState {
     case loading
     case ready
     case recording
+    // Запись, зафиксированная двойным нажатием: идёт без удержания клавиши.
+    // Отдельное состояние, а не флаг при .recording — строка меню обязана
+    // отличать её от обычной записи, иначе режимы неразличимы.
+    case lockedRecording
     case transcribing
     case failed(String)
+
+    /// Идёт ли запись в любой из двух форм: обычной или зафиксированной.
+    /// Проверки вида `case .recording = state` пропустили бы фиксацию,
+    /// и зафиксированная запись не остановилась бы.
+    var isRecording: Bool {
+        switch self {
+        case .recording, .lockedRecording: return true
+        case .loading, .ready, .transcribing, .failed: return false
+        }
+    }
 }
 
 private final class ASRWorker {
@@ -375,14 +389,111 @@ private final class HotkeyMonitor {
     }
 }
 
+/// Материал огранки оверлея. Задаёт цвета рамки и оправы рубиновой лампы.
+/// Иконки приложения и строки меню от него не зависят: настраиваемые параметры
+/// существуют только у оверлея.
+enum BezelMaterial: Int, CaseIterable {
+    case gold = 0
+    case bluedSteel = 1
+
+    var title: String {
+        switch self {
+        case .gold: return "Золото"
+        case .bluedSteel: return "Воронёная сталь"
+        }
+    }
+
+    /// Грани огранки: светлая сверху слева, средний тон, тёмная снизу справа.
+    /// Значения взяты из таблицы палитры в ДИЗАЙН.md и различаются по теме —
+    /// в тёмной блик поднят, иначе рамка теряет объём на тёмном фоне.
+    struct Грани {
+        let светлая: NSColor
+        let средняя: NSColor
+        let тёмная: NSColor
+    }
+
+    private static func цвет(_ hex: UInt32) -> NSColor {
+        NSColor(
+            srgbRed: CGFloat((hex >> 16) & 0xFF) / 255,
+            green: CGFloat((hex >> 8) & 0xFF) / 255,
+            blue: CGFloat(hex & 0xFF) / 255,
+            alpha: 1
+        )
+    }
+
+    func грани(тёмнаяТема: Bool) -> Грани {
+        switch self {
+        case .gold:
+            return тёмнаяТема
+                ? Грани(светлая: Self.цвет(0xFFF0BF), средняя: Self.цвет(0xE2B85B), тёмная: Self.цвет(0x9A7130))
+                : Грани(светлая: Self.цвет(0xFFE6A3), средняя: Self.цвет(0xD7AA4E), тёмная: Self.цвет(0x8C6428))
+        case .bluedSteel:
+            return тёмнаяТема
+                ? Грани(светлая: Self.цвет(0x91A7C7), средняя: Self.цвет(0x33445E), тёмная: Self.цвет(0x121B29))
+                : Грани(светлая: Self.цвет(0x6F83A2), средняя: Self.цвет(0x263247), тёмная: Self.цвет(0x0D1420))
+        }
+    }
+}
+
 private final class EqualizerView: NSView {
+    /// Полный цикл пульсации лампы в секундах: заметно, но не тревожно.
+    private let lockWarningPeriod: TimeInterval = 1.0
     private var level: Float = 0
     private var frameNumber: CGFloat = 0
-    var borderWidth: CGFloat = 0.5
-    var borderOpacity: CGFloat = 0.30
+    /// Толщина огранки в pt. 1,25 — базовое значение: при 1,0 три слоя
+    /// металла не помещаются и рамка вырождается в линию; на @2x это 2,5 px.
+    var bezelWidth: CGFloat = 1.25
+    /// Множитель блика и тени огранки. 1,0 — как задано материалом.
+    var bezelBrightness: CGFloat = 1.0
+    var material: BezelMaterial = .gold
+
+    /// Плотность стекла: пользовательская «прозрачность». Управляет только
+    /// молочной тонировкой, не трогая размытие, огранку, полоски и лампу.
+    var glassDensity: CGFloat = 0.30
+
+    /// Тонировка стекла поверх размытия. Базовые цвета из таблицы палитры,
+    /// но непрозрачность масштабируется плотностью: раньше она была
+    /// фиксированной, а прозрачность гасила весь слой размытия.
+    private func тонировка(тёмнаяТема: Bool) -> NSColor {
+        // При стандартной прозрачности 30% тонировка равна 0,22 в светлой теме
+        // и 0,18 в тёмной — значения из таблицы палитры. Настройка масштабирует
+        // их пропорционально, поэтому 30% даёт ровно табличную плотность.
+        let доля = min(1, max(0, glassDensity)) / 0.30
+        return тёмнаяТема
+            ? NSColor(srgbRed: 0xD8 / 255, green: 0xE0 / 255, blue: 0xEC / 255,
+                      alpha: min(0.45, 0.18 * доля))
+            : NSColor(srgbRed: 0xF2 / 255, green: 0xEE / 255, blue: 0xE6 / 255,
+                      alpha: min(0.50, 0.22 * доля))
+    }
+
+    /// Вертикальный подсвет стекла: сверху светлее, снизу прозрачнее.
+    /// Даёт эффект преломления на выпуклом срезе — без него тонировка
+    /// выглядит равномерной плёнкой, а не стеклом.
+    private func подсвет(тёмнаяТема: Bool) -> NSGradient? {
+        // Блик держится у верхней грани и сходит на нет к 0,34 высоты.
+        NSGradient(
+            colors: [
+                NSColor(white: 1, alpha: тёмнаяТема ? 0.10 : 0.14),
+                NSColor(white: 1, alpha: 0),
+                NSColor(white: 1, alpha: 0.04),
+            ],
+            atLocations: [0.0, 0.34, 1.0],
+            colorSpace: .sRGB
+        )
+    }
+
+    /// Внутренняя кромка стекла между огранкой и материалом. Табличные
+    /// значения: 65% в светлой теме, 56% в тёмной.
+    private func кромка(тёмнаяТема: Bool) -> NSColor {
+        NSColor(white: 1, alpha: тёмнаяТема ? 0.56 : 0.65)
+    }
     // Красная точка слева: запись зафиксирована двойным нажатием и идёт
     // без удержания клавиши. Без индикации режимы неотличимы.
     var locked = false
+    // Момент, с которого лампа начинает мигать: до автоостановки осталось
+    // меньше `lockWarningLead`. Пульсация — единственное предупреждение,
+    // иначе зафиксированная запись обрывается молча.
+    var lockWarningStartedAt: Date?
 
     func update(level: Float) {
         self.level = min(1, max(0, level))
@@ -390,19 +501,195 @@ private final class EqualizerView: NSView {
         needsDisplay = true
     }
 
+    /// Кольцо между двумя скруглёнными прямоугольниками. NSBezierPath не умеет
+    /// градиентный stroke, а перевод линии в контур доступен только с macOS 14.
+    private func кольцо(_ прямоугольник: NSRect, толщина: CGFloat) -> NSBezierPath {
+        let путь = NSBezierPath()
+        let внешний = прямоугольник
+        let внутренний = прямоугольник.insetBy(dx: толщина, dy: толщина)
+        путь.appendRoundedRect(
+            внешний,
+            xRadius: внешний.height / 2,
+            yRadius: внешний.height / 2
+        )
+        путь.appendRoundedRect(
+            внутренний,
+            xRadius: max(0, внутренний.height / 2),
+            yRadius: max(0, внутренний.height / 2)
+        )
+        путь.windingRule = .evenOdd
+        return путь
+    }
+
+    /// Огранка из трёх слоёв. Основа занимает всю толщину, блик и тень
+    /// накладываются локально по дуге, а не идут сплошной полосой по периметру:
+    /// непрерывный яркий кант превращает металл в контур.
+    /// Огранка из трёх слоёв: основа, локальный блик и контактная тень.
+    /// Световая модель у металлов разная. Общий алгоритм
+    /// `[средняя, тёмная, тёмная]` верен для воронёной стали, но золото от него
+    /// становится бронзово-горчичным: тёмная грань захватывает почти всю рамку.
+    private func рисуйОгранку(
+        в область: NSRect,
+        материал: BezelMaterial,
+        грани: BezelMaterial.Грани,
+        толщина: CGFloat
+    ) {
+        let кольцоОгранки = кольцо(область, толщина: толщина)
+
+        // ── Слой 1: металлическая основа ──
+        NSGraphicsContext.saveGraphicsState()
+        кольцоОгранки.addClip()
+        switch материал {
+        case .gold:
+            // Все три утверждённых оттенка. Среднее золото держится до 0,68 и
+            // занимает основную площадь, тёмная грань собирается у нижнего
+            // правого края. Градиент направлен явно из верхнего левого угла
+            // в нижний правый, а не задан углом.
+            NSGradient(
+                colors: [грани.светлая, грани.средняя, грани.тёмная],
+                atLocations: [0.0, 0.68, 1.0],
+                colorSpace: .sRGB
+            )?.draw(
+                from: NSPoint(x: область.minX, y: область.maxY),
+                to: NSPoint(x: область.maxX, y: область.minY),
+                options: []
+            )
+        case .bluedSteel:
+            // Полутон только в верхней трети, дальше почти чёрная основа:
+            // сталь обязана остаться тёмным полированным металлом.
+            NSGradient(
+                colors: [грани.средняя, грани.тёмная, грани.тёмная],
+                atLocations: [0.0, 0.32, 1.0],
+                colorSpace: .sRGB
+            )?.draw(in: область, angle: -70)
+        }
+        NSGraphicsContext.restoreGraphicsState()
+
+        // ── Слой 2: блик ──
+        NSGraphicsContext.saveGraphicsState()
+        кольцоОгранки.addClip()
+        switch материал {
+        case .gold:
+            // Широкий шампанский блик вдоль верхней и верхней левой грани,
+            // а не светлая точка у левого края.
+            let центр = NSPoint(x: область.minX + область.width * 0.25,
+                                y: область.maxY - область.height * 0.05)
+            NSGradient(
+                colors: [
+                    грани.светлая.withAlphaComponent(min(1, bezelBrightness)),
+                    грани.светлая.withAlphaComponent(0.55 * bezelBrightness),
+                    грани.светлая.withAlphaComponent(0),
+                ],
+                atLocations: [0.0, 0.55, 1.0],
+                colorSpace: .sRGB
+            )?.draw(
+                fromCenter: центр, radius: 0,
+                toCenter: центр, radius: область.width * 0.55,
+                options: []
+            )
+        case .bluedSteel:
+            // Холодный блик чуть шире прежнего, но по-прежнему узкий
+            // и локальный: осветлять всю рамку нельзя.
+            let центр = NSPoint(x: область.minX + область.width * 0.22,
+                                y: область.maxY - область.height * 0.06)
+            NSGradient(
+                colors: [
+                    грани.светлая.withAlphaComponent(min(1, bezelBrightness)),
+                    грани.светлая.withAlphaComponent(0.35 * bezelBrightness),
+                    грани.светлая.withAlphaComponent(0),
+                ],
+                atLocations: [0.0, 0.42, 1.0],
+                colorSpace: .sRGB
+            )?.draw(
+                fromCenter: центр, radius: 0,
+                toCenter: центр, radius: max(область.height * 1.6, область.width * 0.16),
+                options: []
+            )
+        }
+        NSGraphicsContext.restoreGraphicsState()
+
+        // ── Слой 3: контактная тень снизу-справа ──
+        NSGraphicsContext.saveGraphicsState()
+        кольцоОгранки.addClip()
+        let центрТени = NSPoint(x: область.maxX - область.width * 0.22,
+                                y: область.minY + область.height * 0.14)
+        switch материал {
+        case .gold:
+            // Тень приглушена: на полной непрозрачности тёмная грань
+            // перекрашивала бóльшую часть рамки в коричневый.
+            NSGradient(
+                colors: [
+                    грани.тёмная.withAlphaComponent(0.55 * bezelBrightness),
+                    грани.тёмная.withAlphaComponent(0.15 * bezelBrightness),
+                    грани.тёмная.withAlphaComponent(0),
+                ],
+                atLocations: [0.0, 0.48, 1.0],
+                colorSpace: .sRGB
+            )?.draw(
+                fromCenter: центрТени, radius: 0,
+                toCenter: центрТени, radius: область.width * 0.38,
+                options: []
+            )
+        case .bluedSteel:
+            NSGradient(
+                colors: [
+                    грани.тёмная,
+                    грани.тёмная.withAlphaComponent(0.30 * bezelBrightness),
+                    грани.тёмная.withAlphaComponent(0),
+                ],
+                atLocations: [0.0, 0.5, 1.0],
+                colorSpace: .sRGB
+            )?.draw(
+                fromCenter: центрТени, radius: 0,
+                toCenter: центрТени, radius: область.width * 0.38,
+                options: []
+            )
+        }
+        NSGraphicsContext.restoreGraphicsState()
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        let outlineRect = bounds.insetBy(dx: 0.8, dy: 0.8)
-        let outline = NSBezierPath(
-            roundedRect: outlineRect,
-            xRadius: outlineRect.height / 2,
-            yRadius: outlineRect.height / 2
-        )
-        NSColor.white.withAlphaComponent(borderOpacity).setStroke()
-        outline.lineWidth = borderWidth
-        outline.stroke()
+        let тёмнаяТема = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let грани = material.грани(тёмнаяТема: тёмнаяТема)
 
-        NSColor.white.setFill()
+        // Огранка — градиент по диагонали, а не однотонная линия: без перехода
+        // от светлой грани к тёмной рамка читается как нарисованный жёлтый
+        // контур, что спецификация прямо запрещает.
+        // Слой 3: молочная диффузия. Ложится поверх размытия и придаёт стеклу
+        // плотность — без неё на цветном фоне пилюля выглядит просто размытием.
+        let стекло = NSBezierPath(
+            roundedRect: bounds,
+            xRadius: bounds.height / 2,
+            yRadius: bounds.height / 2
+        )
+        тонировка(тёмнаяТема: тёмнаяТема).setFill()
+        стекло.fill()
+
+        // Преломление: светлее у верхней кромки, прозрачнее к середине.
+        NSGraphicsContext.saveGraphicsState()
+        стекло.addClip()
+        подсвет(тёмнаяТема: тёмнаяТема)?.draw(in: bounds, angle: -90)
+        NSGraphicsContext.restoreGraphicsState()
+
+        // Слой 4: внутренняя кромка — тонкая светлая линия сразу под огранкой.
+        // Она отделяет металл от стекла и даёт эффект преломления на срезе.
+        let кромкаRect = bounds.insetBy(dx: bezelWidth + 0.5, dy: bezelWidth + 0.5)
+        let линияКромки = NSBezierPath(
+            roundedRect: кромкаRect,
+            xRadius: кромкаRect.height / 2,
+            yRadius: кромкаRect.height / 2
+        )
+        линияКромки.lineWidth = 0.5
+        кромка(тёмнаяТема: тёмнаяТема).setStroke()
+        линияКромки.stroke()
+
+        // Слой 5: огранка. Один градиентный штрих читался как плоская линия,
+        // поэтому металл собирается из трёх слоёв: основа во всю толщину,
+        // локальный блик сверху-слева и контактная тень снизу-справа.
+        рисуйОгранку(в: bounds, материал: material, грани: грани, толщина: bezelWidth)
+
+        NSColor(white: 1, alpha: 0xEB / 255).setFill()
         let barWidth: CGFloat = 4
         let gap: CGFloat = 8
         let startX = (bounds.width - (barWidth * 5 + gap * 4)) / 2
@@ -426,7 +713,49 @@ private final class EqualizerView: NSView {
                 width: diameter,
                 height: diameter
             )
-            NSColor.systemRed.setFill()
+            // Пульсация считается от реального времени, а не от номера кадра:
+            // кадры приходят от таймера микрофона и могут запаздывать, а
+            // предупреждение обязано идти ровно и совпадать с обратным отсчётом.
+            var crystalAlpha: CGFloat = 1
+            if let startedAt = lockWarningStartedAt {
+                let elapsed = Date().timeIntervalSince(startedAt)
+                let cycle = sin(elapsed * .pi * 2 / lockWarningPeriod)
+                crystalAlpha = 0.25 + 0.75 * (cycle * 0.5 + 0.5)
+            }
+
+            // Оправа лампы огранена тем же способом, что и наружная рамка, и
+            // тем же материалом. Непрозрачность держит 1,0 всегда: пульсирует
+            // только рубин. Если гасить лампу целиком, на светлом фоне она в
+            // нижней точке пропадает, и предупреждение читается как сбой отрисовки.
+            let оправа = dot.insetBy(dx: -1.6, dy: -1.6)
+            рисуйОгранку(в: оправа, материал: material, грани: грани, толщина: 1.25)
+
+            // Рубин: согласованный цвет из палитры вместо системного красного,
+            // который меняется вместе с системным акцентом.
+            let рубин = тёмнаяТема
+                ? NSColor(srgbRed: 0xE0 / 255, green: 0x46 / 255, blue: 0x52 / 255, alpha: 1)
+                : NSColor(srgbRed: 0xC9 / 255, green: 0x2F / 255, blue: 0x3D / 255, alpha: 1)
+
+            // Небольшой локальный ореол вокруг кристалла. Радиус чуть больше
+            // самого рубина — подсветка на срезе стекла, не неоновое свечение.
+            let ореол = NSGradient(
+                colors: [
+                    рубин.withAlphaComponent(0.42 * crystalAlpha),
+                    рубин.withAlphaComponent(0),
+                ],
+                atLocations: [0, 1],
+                colorSpace: .sRGB
+            )
+            let центр = NSPoint(x: dot.midX, y: dot.midY)
+            NSGraphicsContext.saveGraphicsState()
+            ореол?.draw(
+                fromCenter: центр, radius: diameter * 0.4,
+                toCenter: центр, radius: diameter * 1.5,
+                options: []
+            )
+            NSGraphicsContext.restoreGraphicsState()
+
+            рубин.withAlphaComponent(crystalAlpha).setFill()
             NSBezierPath(ovalIn: dot).fill()
         }
     }
@@ -438,6 +767,7 @@ private final class OverlayPreferences {
         static let width = "overlay.width"
         static let height = "overlay.height"
         static let opacity = "overlay.opacity"
+        static let bezelMaterial = "overlay.bezelMaterial"
         static let borderWidth = "overlay.borderWidth"
         static let borderBrightness = "overlay.borderBrightness"
         static let shadow = "overlay.shadow"
@@ -453,7 +783,8 @@ private final class OverlayPreferences {
     init() {
         defaults.register(defaults: [
             Key.width: 100.0, Key.height: 30.0, Key.opacity: 0.30,
-            Key.borderWidth: 0.5, Key.borderBrightness: 0.30,
+            Key.bezelMaterial: BezelMaterial.gold.rawValue,
+            Key.borderWidth: 1.25, Key.borderBrightness: 1.0,
             Key.shadow: true,
             Key.shadowOpacity: 0.17952991522530728,
             Key.shadowRadius: 8.392724578971325,
@@ -461,10 +792,19 @@ private final class OverlayPreferences {
             Key.bottomOffset: 120.0,
             Key.material: 0,
         ])
-        if defaults.integer(forKey: Key.styleVersion) < 5 {
-            shadowOffsetY = -2
-            bottomOffset = 120
-            defaults.set(5, forKey: Key.styleVersion)
+        // Версия 6 — переход на новую визуальную систему. Прежние преднастройки
+        // не сохраняются: огранка больше не настраивается вручную, а старые
+        // значения толщины и яркости рамки не имеют соответствия в новой модели.
+        if defaults.integer(forKey: Key.styleVersion) < 6 {
+            for ключ in [
+                Key.width, Key.height, Key.opacity, Key.shadow,
+                Key.shadowOpacity, Key.shadowRadius, Key.shadowOffsetY,
+                Key.bottomOffset, Key.material, Key.bezelMaterial,
+                Key.borderWidth, Key.borderBrightness,
+            ] {
+                defaults.removeObject(forKey: ключ)
+            }
+            defaults.set(6, forKey: Key.styleVersion)
         }
     }
 
@@ -480,13 +820,19 @@ private final class OverlayPreferences {
         get { CGFloat(defaults.double(forKey: Key.opacity)) }
         set { defaults.set(Double(newValue), forKey: Key.opacity) }
     }
+    /// Толщина огранки в pt. Влияет на все три слоя металла разом.
     var borderWidth: CGFloat {
         get { CGFloat(defaults.double(forKey: Key.borderWidth)) }
         set { defaults.set(Double(newValue), forKey: Key.borderWidth) }
     }
+    /// Интенсивность блика и тени огранки. 1,0 — как задано материалом.
     var borderBrightness: CGFloat {
         get { CGFloat(defaults.double(forKey: Key.borderBrightness)) }
         set { defaults.set(Double(newValue), forKey: Key.borderBrightness) }
+    }
+    var bezelMaterial: BezelMaterial {
+        get { BezelMaterial(rawValue: defaults.integer(forKey: Key.bezelMaterial)) ?? .gold }
+        set { defaults.set(newValue.rawValue, forKey: Key.bezelMaterial) }
     }
     var shadow: Bool {
         get { defaults.bool(forKey: Key.shadow) }
@@ -517,7 +863,11 @@ private final class OverlayPreferences {
         case 1: return .hudWindow
         case 2: return .windowBackground
         case 3: return .contentBackground
-        default: return .sidebar
+        // .sidebar подмешивает собственную тонировку и уводит стекло в
+        // серо-зелёный, .fullScreenUI кладёт плотную серую подложку.
+        // .underWindowBackground пропускает фон лучше всех при сохранении
+        // размытия — замер на пёстром фоне: R74 против R76 рядом.
+        default: return .underWindowBackground
         }
     }
 
@@ -547,6 +897,7 @@ private final class RecordingOverlay {
     // уровня выигрывает показавшийся последним, а одного orderFrontRegardless
     // при старте записи не хватает — держим панель наверху всю запись.
     private var topmostTimer: Timer?
+    private var warningTimer: Timer?
     private var spaceObserver: NSObjectProtocol?
 
     init(settings: OverlayPreferences) {
@@ -575,7 +926,10 @@ private final class RecordingOverlay {
         shadowView.wantsLayer = true
         effect.blendingMode = .behindWindow
         effect.state = .active
-        effect.appearance = NSAppearance(named: .vibrantDark)
+        // Тему не фиксируем: палитра стекла задана отдельно для светлой и
+        // тёмной, а жёсткий vibrantDark заставлял бы размытие всегда быть
+        // тёмным и спорить с молочной тонировкой в светлой теме.
+        effect.appearance = nil
         effect.wantsLayer = true
         effect.layer?.masksToBounds = true
         container.addSubview(shadowView)
@@ -601,10 +955,15 @@ private final class RecordingOverlay {
         effect.frame = pillFrame
         equalizer.frame = pillFrame
         effect.material = settings.material
-        effect.alphaValue = settings.opacity
+        // alphaValue не связан с пользовательской прозрачностью: она управляет
+        // плотностью тонировки. Здесь фиксированное значение, чуть смягчающее
+        // системную подложку, чтобы фон проходил сквозь стекло.
+        effect.alphaValue = 0.64
+        equalizer.glassDensity = settings.opacity
         effect.layer?.cornerRadius = settings.height / 2
-        equalizer.borderWidth = settings.borderWidth
-        equalizer.borderOpacity = settings.borderBrightness
+        equalizer.material = settings.bezelMaterial
+        equalizer.bezelWidth = max(0.5, settings.borderWidth)
+        equalizer.bezelBrightness = settings.borderBrightness
         equalizer.needsDisplay = true
         shadowView.layer?.shadowColor = NSColor.black.cgColor
         shadowView.layer?.shadowOpacity = settings.shadow ? Float(settings.shadowOpacity) : 0
@@ -689,13 +1048,36 @@ private final class RecordingOverlay {
         // Каждый показ начинается незафиксированным: фиксация включается
         // явно двойным нажатием, а скрытие всегда завершает запись.
         setLocked(false)
+        setLockWarning(false)
         stopKeepingOnTop()
         panel.orderOut(nil)
     }
 
     func setLocked(_ flag: Bool) {
         equalizer.locked = flag
+        if !flag { setLockWarning(false) }
         equalizer.needsDisplay = true
+    }
+
+    /// Включает пульсацию лампы перед автоостановкой зафиксированной записи.
+    func setLockWarning(_ flag: Bool) {
+        guard flag else {
+            warningTimer?.invalidate()
+            warningTimer = nil
+            equalizer.lockWarningStartedAt = nil
+            equalizer.needsDisplay = true
+            return
+        }
+        guard warningTimer == nil else { return }
+        equalizer.lockWarningStartedAt = Date()
+        // Перерисовку оверлея двигает уровень микрофона, а он приходит только
+        // при звуке. В тишине лампа замерла бы на полукадре, поэтому на время
+        // предупреждения заводим собственный тик.
+        let timer = Timer(timeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
+            self?.equalizer.needsDisplay = true
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        warningTimer = timer
     }
 
     func update(level: Float) { equalizer.update(level: level) }
@@ -709,22 +1091,30 @@ private final class OverlaySettingsController: NSObject, NSWindowDelegate {
         let bottomOffset: CGFloat
         let opacity: CGFloat
         let borderWidth: CGFloat
-        let borderOpacity: CGFloat
+        let borderBrightness: CGFloat
         let shadow: Bool
         let shadowOpacity: CGFloat
         let shadowRadius: CGFloat
         let shadowOffsetY: CGFloat
         let materialIndex: Int
+        let bezel: BezelMaterial
     }
 
+    // Преднастройки новой визуальной системы. Прежние не переносятся: они
+    // задавали толщину и яркость рамки, которых больше нет.
     private let presets = [
-        Preset(name: "Ваш текущий · сохранён", width: 100, height: 30, bottomOffset: 120, opacity: 0.50705068407960197, borderWidth: 0.97529928482587058, borderOpacity: 0.36572605721393031, shadow: true, shadowOpacity: 0.5, shadowRadius: 15.024500961813498, shadowOffsetY: -2, materialIndex: 3),
-        Preset(name: "Codex · воздушное стекло", width: 104, height: 32, bottomOffset: 120, opacity: 0.34, borderWidth: 0.6, borderOpacity: 0.24, shadow: true, shadowOpacity: 0.14, shadowRadius: 13, shadowOffsetY: -3, materialIndex: 0),
-        Preset(name: "Исходный компактный", width: 100, height: 30, bottomOffset: 120, opacity: 0.30, borderWidth: 0.5, borderOpacity: 0.30, shadow: true, shadowOpacity: 0.17952991522530728, shadowRadius: 8.392724578971325, shadowOffsetY: -2, materialIndex: 0),
-        Preset(name: "Минималистичный", width: 100, height: 30, bottomOffset: 120, opacity: 0.22, borderWidth: 0.5, borderOpacity: 0.24, shadow: true, shadowOpacity: 0.10, shadowRadius: 12, shadowOffsetY: -2, materialIndex: 0),
-        Preset(name: "Контрастный", width: 108, height: 32, bottomOffset: 120, opacity: 0.48, borderWidth: 0.5, borderOpacity: 0.36, shadow: true, shadowOpacity: 0.20, shadowRadius: 10, shadowOffsetY: -3, materialIndex: 1),
-        Preset(name: "Без тени", width: 100, height: 30, bottomOffset: 120, opacity: 0.30, borderWidth: 0.5, borderOpacity: 0.30, shadow: false, shadowOpacity: 0, shadowRadius: 8, shadowOffsetY: -2, materialIndex: 0),
-        Preset(name: "Крупный", width: 132, height: 38, bottomOffset: 126, opacity: 0.28, borderWidth: 0.75, borderOpacity: 0.30, shadow: true, shadowOpacity: 0.14, shadowRadius: 12, shadowOffsetY: -3, materialIndex: 0),
+        Preset(name: "Золотая огранка · базовая", width: 100, height: 30, bottomOffset: 120,
+               opacity: 0.30, borderWidth: 1.25, borderBrightness: 1.0, shadow: true, shadowOpacity: 0.18, shadowRadius: 8.4,
+               shadowOffsetY: -2, materialIndex: 0, bezel: .gold),
+        Preset(name: "Воронёная сталь", width: 100, height: 30, bottomOffset: 120,
+               opacity: 0.30, borderWidth: 1.25, borderBrightness: 1.0, shadow: true, shadowOpacity: 0.18, shadowRadius: 8.4,
+               shadowOffsetY: -2, materialIndex: 0, bezel: .bluedSteel),
+        Preset(name: "Крупная пилюля", width: 132, height: 38, bottomOffset: 126,
+               opacity: 0.28, borderWidth: 1.25, borderBrightness: 1.0, shadow: true, shadowOpacity: 0.14, shadowRadius: 12,
+               shadowOffsetY: -3, materialIndex: 0, bezel: .gold),
+        Preset(name: "Без тени", width: 100, height: 30, bottomOffset: 120,
+               opacity: 0.30, borderWidth: 1.25, borderBrightness: 1.0, shadow: false, shadowOpacity: 0, shadowRadius: 8,
+               shadowOffsetY: -2, materialIndex: 0, bezel: .gold),
     ]
 
     private let settings: OverlayPreferences
@@ -734,8 +1124,9 @@ private final class OverlaySettingsController: NSObject, NSWindowDelegate {
     private let heightSlider = NSSlider(value: 30, minValue: 24, maxValue: 70, target: nil, action: nil)
     private let bottomOffsetSlider = NSSlider(value: 120, minValue: 50, maxValue: 240, target: nil, action: nil)
     private let opacitySlider = NSSlider(value: 0.30, minValue: 0, maxValue: 1, target: nil, action: nil)
-    private let borderSlider = NSSlider(value: 0.5, minValue: 0, maxValue: 3, target: nil, action: nil)
-    private let brightnessSlider = NSSlider(value: 0.30, minValue: 0, maxValue: 1, target: nil, action: nil)
+    private let bezelPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let borderSlider = NSSlider(value: 1.25, minValue: 0.5, maxValue: 3, target: nil, action: nil)
+    private let brightnessSlider = NSSlider(value: 1.0, minValue: 0, maxValue: 1, target: nil, action: nil)
     private let shadowButton = NSButton(checkboxWithTitle: "Тень", target: nil, action: nil)
     private let shadowOpacitySlider = NSSlider(value: 0.16, minValue: 0, maxValue: 0.5, target: nil, action: nil)
     private let shadowRadiusSlider = NSSlider(value: 8, minValue: 2, maxValue: 20, target: nil, action: nil)
@@ -782,7 +1173,7 @@ private final class OverlaySettingsController: NSObject, NSWindowDelegate {
         title.frame = NSRect(x: 24, y: 682, width: 440, height: 28)
         view.addSubview(title)
 
-        let hint = NSTextField(labelWithString: "Настройте стекло, контур и тень — результат сразу виден внизу экрана.")
+        let hint = NSTextField(labelWithString: "Настройте стекло, огранку и тень — результат сразу виден внизу экрана.")
         hint.textColor = .secondaryLabelColor
         hint.frame = NSRect(x: 24, y: 654, width: 452, height: 20)
         view.addSubview(hint)
@@ -811,9 +1202,17 @@ private final class OverlaySettingsController: NSObject, NSWindowDelegate {
         view.addSubview(materialPopup)
         addRow(title: "Плотность", slider: opacitySlider, y: 328)
 
-        addSection("КОНТУР", y: 294)
-        addRow(title: "Толщина", slider: borderSlider, y: 254)
-        addRow(title: "Яркость", slider: brightnessSlider, y: 214)
+        addSection("ОГРАНКА", y: 294)
+        let bezelTitle = NSTextField(labelWithString: "Материал")
+        bezelTitle.frame = NSRect(x: 24, y: 254, width: 160, height: 20)
+        view.addSubview(bezelTitle)
+        bezelPopup.addItems(withTitles: BezelMaterial.allCases.map(\.title))
+        bezelPopup.frame = NSRect(x: 190, y: 250, width: 226, height: 28)
+        bezelPopup.target = self
+        bezelPopup.action = #selector(valuesChanged)
+        view.addSubview(bezelPopup)
+        addRow(title: "Толщина", slider: borderSlider, y: 214)
+        addRow(title: "Яркость", slider: brightnessSlider, y: 178)
 
         addSection("ТЕНЬ", y: 180, lineWidth: 250)
         shadowButton.frame = NSRect(x: 392, y: 176, width: 84, height: 24)
@@ -866,6 +1265,7 @@ private final class OverlaySettingsController: NSObject, NSWindowDelegate {
         heightSlider.doubleValue = Double(settings.height)
         bottomOffsetSlider.doubleValue = Double(settings.bottomOffset)
         opacitySlider.doubleValue = Double(settings.opacity)
+        bezelPopup.selectItem(at: settings.bezelMaterial.rawValue)
         borderSlider.doubleValue = Double(settings.borderWidth)
         brightnessSlider.doubleValue = Double(settings.borderBrightness)
         shadowButton.state = settings.shadow ? .on : .off
@@ -884,8 +1284,9 @@ private final class OverlaySettingsController: NSObject, NSWindowDelegate {
             abs(preset.height - settings.height) < 0.1 &&
             abs(preset.bottomOffset - settings.bottomOffset) < 0.1 &&
             abs(preset.opacity - settings.opacity) < 0.001 &&
+            preset.bezel == settings.bezelMaterial &&
             abs(preset.borderWidth - settings.borderWidth) < 0.001 &&
-            abs(preset.borderOpacity - settings.borderBrightness) < 0.001 &&
+            abs(preset.borderBrightness - settings.borderBrightness) < 0.001 &&
             preset.shadow == settings.shadow &&
             abs(preset.shadowOpacity - settings.shadowOpacity) < 0.001 &&
             abs(preset.shadowRadius - settings.shadowRadius) < 0.01 &&
@@ -904,6 +1305,7 @@ private final class OverlaySettingsController: NSObject, NSWindowDelegate {
             shadow: shadowButton.state == .on,
             materialIndex: materialPopup.indexOfSelectedItem
         )
+        settings.bezelMaterial = BezelMaterial(rawValue: bezelPopup.indexOfSelectedItem) ?? .gold
         settings.shadowOpacity = CGFloat(shadowOpacitySlider.doubleValue)
         settings.shadowRadius = CGFloat(shadowRadiusSlider.doubleValue)
         settings.shadowOffsetY = CGFloat(shadowOffsetSlider.doubleValue)
@@ -923,10 +1325,11 @@ private final class OverlaySettingsController: NSObject, NSWindowDelegate {
             height: preset.height,
             opacity: preset.opacity,
             borderWidth: preset.borderWidth,
-            borderBrightness: preset.borderOpacity,
+            borderBrightness: preset.borderBrightness,
             shadow: preset.shadow,
             materialIndex: preset.materialIndex
         )
+        settings.bezelMaterial = preset.bezel
         settings.bottomOffset = preset.bottomOffset
         settings.shadowOpacity = preset.shadowOpacity
         settings.shadowRadius = preset.shadowRadius
@@ -949,7 +1352,7 @@ private final class OverlaySettingsController: NSObject, NSWindowDelegate {
         valueLabels[1].stringValue = "\(Int(heightSlider.doubleValue.rounded())) px"
         valueLabels[2].stringValue = "\(Int(bottomOffsetSlider.doubleValue.rounded())) px"
         valueLabels[3].stringValue = "\(Int(opacitySlider.doubleValue * 100))%"
-        valueLabels[4].stringValue = String(format: "%.1f px", borderSlider.doubleValue)
+        valueLabels[4].stringValue = String(format: "%.2f pt", borderSlider.doubleValue)
         valueLabels[5].stringValue = "\(Int(brightnessSlider.doubleValue * 100))%"
         valueLabels[6].stringValue = "\(Int(shadowOpacitySlider.doubleValue * 100))%"
         valueLabels[7].stringValue = String(format: "%.1f px", shadowRadiusSlider.doubleValue)
@@ -1007,6 +1410,38 @@ private final class FileLogger {
     }
 }
 
+/// Значки строки меню: отрисованы дизайном и лежат в бандле готовыми.
+/// Все шесть монохромные, поэтому включаются в `template`-режим — строка меню
+/// сама красит их под тему и подсветку, отдельные светлый и тёмный варианты
+/// не нужны.
+private enum StatusIcon {
+    /// Строка меню работает в пунктах: значок нарисован на сетке 18 × 18 pt,
+    /// а в бандле лежит @2x. Без явного размера AppKit взял бы пиксельный
+    /// и значок оказался бы вдвое крупнее системных соседей.
+    private static let size = NSSize(width: 18, height: 18)
+    private static var кэш: [String: NSImage] = [:]
+
+    private static func значок(_ имя: String) -> NSImage? {
+        if let готовый = кэш[имя] { return готовый }
+        guard let url = Bundle.main.url(
+            forResource: имя,
+            withExtension: "png",
+            subdirectory: "Значки"
+        ), let image = NSImage(contentsOf: url) else { return nil }
+        image.size = size
+        image.isTemplate = true
+        кэш[имя] = image
+        return image
+    }
+
+    static func loading() -> NSImage? { значок("menu-loading") }
+    static func ready() -> NSImage? { значок("menu-ready") }
+    static func recording() -> NSImage? { значок("menu-recording") }
+    static func locked() -> NSImage? { значок("menu-locked") }
+    static func transcribing() -> NSImage? { значок("menu-transcribing") }
+    static func failed() -> NSImage? { значок("menu-failed") }
+}
+
 private final class AppDelegate: NSObject, NSApplicationDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private let statusMenuItem = NSMenuItem(title: "Запускаю модель…", action: nil, keyEquivalent: "")
@@ -1043,7 +1478,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private let tapThreshold: TimeInterval = 0.35
     // Страховка от забытой записи: фиксация сама завершается распознаванием.
     private let lockedRecordingLimit: TimeInterval = 10 * 60
+    /// За сколько до автоостановки лампа начинает мигать.
+    private let lockWarningLead: TimeInterval = 30
     private var lockLimitTimer: Timer?
+    private var lockWarningTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         configureMenu()
@@ -1064,8 +1502,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func configureMenu() {
-        statusItem.button?.image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "Chirper")
-        statusItem.button?.image?.isTemplate = true
+        statusItem.button?.image = StatusIcon.ready()
 
         let menu = NSMenu()
         menu.addItem(statusMenuItem)
@@ -1126,6 +1563,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             tapTimer = nil
             gesture = .locked
             overlay.setLocked(true)
+            setState(.lockedRecording)
             startLockLimitTimer()
         case .locked:
             finishLockedRecording()
@@ -1167,12 +1605,15 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private func finishLockedRecording() {
         lockLimitTimer?.invalidate()
         lockLimitTimer = nil
+        lockWarningTimer?.invalidate()
+        lockWarningTimer = nil
         gesture = .idle
         stopRecording()
     }
 
     private func startLockLimitTimer() {
         lockLimitTimer?.invalidate()
+        lockWarningTimer?.invalidate()
         let timer = Timer(timeInterval: lockedRecordingLimit, repeats: false) { [weak self] _ in
             guard let self, case .locked = self.gesture else { return }
             self.lockLimitTimer = nil
@@ -1180,10 +1621,21 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         RunLoop.main.add(timer, forMode: .common)
         lockLimitTimer = timer
+
+        let warning = Timer(
+            timeInterval: lockedRecordingLimit - lockWarningLead,
+            repeats: false
+        ) { [weak self] _ in
+            guard let self, case .locked = self.gesture else { return }
+            self.lockWarningTimer = nil
+            self.overlay.setLockWarning(true)
+        }
+        RunLoop.main.add(warning, forMode: .common)
+        lockWarningTimer = warning
     }
 
     private func cancelRecording() {
-        guard case .recording = state, let url = recordingURL else { return }
+        guard state.isRecording, let url = recordingURL else { return }
         _ = recorder.stop()
         overlay.hide()
         recordingURL = nil
@@ -1211,7 +1663,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func stopRecording() {
-        guard case .recording = state, let url = recordingURL else { return }
+        guard state.isRecording, let url = recordingURL else { return }
         let duration = Date().timeIntervalSince(recorder.startedAt)
         let bytesWritten = recorder.stop()
         overlay.hide()
@@ -1286,23 +1738,26 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         switch newState {
         case .loading:
             statusMenuItem.title = "Запускаю модель…"
+            statusItem.button?.image = StatusIcon.loading()
         case .ready:
             statusMenuItem.title = "Готов — зажми правый ⌥"
-            statusItem.button?.image = NSImage(systemSymbolName: "waveform", accessibilityDescription: nil)
+            statusItem.button?.image = StatusIcon.ready()
         case .recording:
             statusMenuItem.title = "Идёт запись — отпусти ⌥"
-            statusItem.button?.image = NSImage(systemSymbolName: "waveform.circle.fill", accessibilityDescription: nil)
+            statusItem.button?.image = StatusIcon.recording()
+        case .lockedRecording:
+            statusMenuItem.title = "Запись зафиксирована — нажми ⌥, чтобы остановить"
+            statusItem.button?.image = StatusIcon.locked()
         case .transcribing:
             statusMenuItem.title = "Распознаю…"
-            statusItem.button?.image = NSImage(systemSymbolName: "ellipsis.circle", accessibilityDescription: nil)
+            statusItem.button?.image = StatusIcon.transcribing()
         case let .failed(message):
             statusMenuItem.title = "Ошибка — нажми, чтобы посмотреть"
             statusMenuItem.target = self
             statusMenuItem.action = #selector(showError)
             statusMenuItem.representedObject = message
-            statusItem.button?.image = NSImage(systemSymbolName: "exclamationmark.triangle", accessibilityDescription: nil)
+            statusItem.button?.image = StatusIcon.failed()
         }
-        statusItem.button?.image?.isTemplate = true
         if case .failed = newState {} else {
             statusMenuItem.action = nil
             statusMenuItem.representedObject = nil
@@ -1339,7 +1794,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func showOverlaySettings() {
         overlaySettings.onClose = { [weak self] in
             guard let self else { return }
-            if case .recording = self.state { return }
+            if self.state.isRecording { return }
             self.overlay.hide()
         }
         overlaySettings.show()
