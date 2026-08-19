@@ -16,5 +16,3 @@ models/
 build/
 dist/
 
-# промежуточные визуализации ChatGPT/Codex — не исходники проекта
-.codex/
