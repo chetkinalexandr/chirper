@@ -14,7 +14,7 @@
 
 ## Установка готового приложения
 
-Готовый `Chirper.app` уже содержит Python runtime, PyTorch и остальные
+Готовый `Chirper.app` уже содержит Python runtime, ONNX Runtime и остальные
 зависимости. Пользователю не нужно устанавливать Python, Xcode или Homebrew.
 
 Скачайте DMG со страницы
@@ -32,7 +32,7 @@
 4. Разрешите Chirper доступ к Microphone и Accessibility.
 
 При первом запуске потребуется интернет: приложение скачает закреплённую
-ревизию GigaAM v3 `e2e_rnnt` размером около 428 МБ. Дальше
+ревизию GigaAM v3 `e2e_rnnt` (int8) размером около 216 МБ. Дальше
 распознавание работает локально.
 
 Готовая сборка поддерживает Apple Silicon и macOS 13 или новее.
@@ -46,7 +46,7 @@
 - разрешения Microphone и Accessibility.
 
 Проект рассчитан на Apple Silicon. На Intel зависимости могут потребовать
-другие версии PyTorch.
+другие сборки ONNX Runtime.
 
 ```bash
 cd chirper
