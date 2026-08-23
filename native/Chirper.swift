@@ -1136,6 +1136,18 @@ private final class OverlaySettingsController: NSObject, NSWindowDelegate {
     private var valueLabels: [NSTextField] = []
     var onClose: (() -> Void)?
 
+    // Раскладка сверху вниз: курсор вместо жёстко прописанных координат.
+    private let leftMargin: CGFloat = 24
+    private let rowWidth: CGFloat = 452
+    private let labelColumn: CGFloat = 166
+    private let controlWidth: CGFloat = 226
+    private let valueColumn: CGFloat = 48
+    private let rowHeight: CGFloat = 34
+    private let rowGap: CGFloat = 8
+    private let sectionGap: CGFloat = 22
+    private let bottomMargin: CGFloat = 20
+    private var cursorY: CGFloat = 0
+
     init(settings: OverlayPreferences, overlay: RecordingOverlay) {
         self.settings = settings
         self.overlay = overlay
@@ -1168,86 +1180,122 @@ private final class OverlaySettingsController: NSObject, NSWindowDelegate {
 
     private func configureControls() {
         guard let view = window.contentView else { return }
+        let contentHeight = window.contentView?.frame.height ?? 730
+        cursorY = contentHeight - 48
+
         let title = NSTextField(labelWithString: "Индикатор записи")
         title.font = .boldSystemFont(ofSize: 20)
-        title.frame = NSRect(x: 24, y: 682, width: 440, height: 28)
+        title.frame = NSRect(x: leftMargin, y: cursorY, width: rowWidth, height: 28)
         view.addSubview(title)
+        cursorY -= 26
 
         let hint = NSTextField(labelWithString: "Настройте стекло, огранку и тень — результат сразу виден внизу экрана.")
         hint.textColor = .secondaryLabelColor
-        hint.frame = NSRect(x: 24, y: 654, width: 452, height: 20)
+        hint.lineBreakMode = .byWordWrapping
+        hint.maximumNumberOfLines = 2
+        hint.frame = NSRect(x: leftMargin, y: cursorY - 16, width: rowWidth, height: 36)
         view.addSubview(hint)
+        cursorY -= 40
 
-        addSection("ПРЕСЕТ", y: 620)
+        addSection("ПРЕСЕТ")
         presetPopup.addItems(withTitles: presets.map(\.name) + ["Пользовательский"])
-        presetPopup.frame = NSRect(x: 24, y: 586, width: 452, height: 30)
+        presetPopup.frame = NSRect(x: leftMargin, y: cursorY - 30, width: rowWidth, height: 26)
         presetPopup.target = self
         presetPopup.action = #selector(applyPreset)
         view.addSubview(presetPopup)
+        cursorY -= 30 + rowGap
 
-        addSection("ГЕОМЕТРИЯ", y: 556)
-        addRow(title: "Ширина", slider: widthSlider, y: 516)
-        addRow(title: "Высота", slider: heightSlider, y: 476)
-        addRow(title: "Отступ снизу", slider: bottomOffsetSlider, y: 436)
+        addSection("ГЕОМЕТРИЯ")
+        addRow(title: "Ширина", slider: widthSlider)
+        addRow(title: "Высота", slider: heightSlider)
+        addRow(title: "Отступ снизу", slider: bottomOffsetSlider)
 
-        addSection("СТЕКЛО", y: 402)
-        let materialLabel = NSTextField(labelWithString: "Материал")
-        materialLabel.frame = NSRect(x: 24, y: 367, width: 160, height: 20)
-        view.addSubview(materialLabel)
+        addSection("СТЕКЛО")
+        addPopupRow(title: "Материал", popup: materialPopup, titles: ["Sidebar · мягкий", "HUD · контрастный", "Окно", "Контент"])
+        addRow(title: "Плотность", slider: opacitySlider)
 
-        materialPopup.addItems(withTitles: ["Sidebar · мягкий", "HUD · контрастный", "Окно", "Контент"])
-        materialPopup.frame = NSRect(x: 190, y: 363, width: 226, height: 28)
-        materialPopup.target = self
-        materialPopup.action = #selector(valuesChanged)
-        view.addSubview(materialPopup)
-        addRow(title: "Плотность", slider: opacitySlider, y: 328)
+        addSection("ОГРАНКА")
+        addPopupRow(title: "Материал", popup: bezelPopup, titles: BezelMaterial.allCases.map(\.title))
+        addRow(title: "Толщина", slider: borderSlider)
+        addRow(title: "Яркость", slider: brightnessSlider)
 
-        addSection("ОГРАНКА", y: 294)
-        let bezelTitle = NSTextField(labelWithString: "Материал")
-        bezelTitle.frame = NSRect(x: 24, y: 254, width: 160, height: 20)
-        view.addSubview(bezelTitle)
-        bezelPopup.addItems(withTitles: BezelMaterial.allCases.map(\.title))
-        bezelPopup.frame = NSRect(x: 190, y: 250, width: 226, height: 28)
-        bezelPopup.target = self
-        bezelPopup.action = #selector(valuesChanged)
-        view.addSubview(bezelPopup)
-        addRow(title: "Толщина", slider: borderSlider, y: 214)
-        addRow(title: "Яркость", slider: brightnessSlider, y: 178)
-
-        addSection("ТЕНЬ", y: 180, lineWidth: 250)
-        shadowButton.frame = NSRect(x: 392, y: 176, width: 84, height: 24)
-        shadowButton.target = self
-        shadowButton.action = #selector(valuesChanged)
-        view.addSubview(shadowButton)
-        addRow(title: "Интенсивность", slider: shadowOpacitySlider, y: 140)
-        addRow(title: "Размытие", slider: shadowRadiusSlider, y: 100)
-        addRow(title: "Смещение по Y", slider: shadowOffsetSlider, y: 60)
+        addSection("ТЕНЬ", trailing: shadowButton)
+        addRow(title: "Интенсивность", slider: shadowOpacitySlider)
+        addRow(title: "Размытие", slider: shadowRadiusSlider)
+        addRow(title: "Смещение по Y", slider: shadowOffsetSlider)
 
         let close = NSButton(title: "Готово", target: window, action: #selector(NSWindow.close))
         close.keyEquivalent = "\r"
         close.bezelStyle = .rounded
-        close.frame = NSRect(x: 378, y: 16, width: 98, height: 30)
+        close.frame = NSRect(x: leftMargin + rowWidth - 98, y: cursorY - 34, width: 98, height: 30)
         view.addSubview(close)
+        cursorY -= 34
+
+        // Подогнать окно под реально занятую высоту, чтобы ряды не наезжали друг на друга.
+        let overflow = bottomMargin - cursorY
+        if abs(overflow) > 0.5 {
+            var frame = window.frame
+            let newContentHeight = contentHeight + overflow
+            frame.size.height = window.frameRect(forContentRect: NSRect(x: 0, y: 0, width: 500, height: newContentHeight)).height
+            window.setFrame(frame, display: false)
+            for subview in view.subviews {
+                subview.frame.origin.y += overflow
+            }
+        }
     }
 
-    private func addSection(_ title: String, y: CGFloat, lineWidth: CGFloat = 364) {
+    private func addSection(_ title: String, trailing: NSButton? = nil) {
         guard let view = window.contentView else { return }
+        cursorY -= sectionGap
         let label = NSTextField(labelWithString: title)
         label.font = .systemFont(ofSize: 11, weight: .semibold)
         label.textColor = .secondaryLabelColor
-        label.frame = NSRect(x: 24, y: y, width: 180, height: 18)
+        label.sizeToFit()
+        let labelWidth = max(label.frame.width, 70)
+        label.frame = NSRect(x: leftMargin, y: cursorY, width: labelWidth, height: 16)
         view.addSubview(label)
-        let line = NSBox(frame: NSRect(x: 112, y: y + 8, width: lineWidth, height: 1))
-        line.boxType = .separator
-        view.addSubview(line)
+
+        var lineEnd = leftMargin + rowWidth
+        if let trailing {
+            trailing.sizeToFit()
+            let trailingWidth = max(trailing.frame.width, 70)
+            trailing.frame = NSRect(x: leftMargin + rowWidth - trailingWidth, y: cursorY - 4, width: trailingWidth, height: 22)
+            trailing.target = self
+            trailing.action = #selector(valuesChanged)
+            view.addSubview(trailing)
+            lineEnd = trailing.frame.minX - 10
+        }
+
+        let lineStart = leftMargin + labelWidth + 10
+        if lineEnd > lineStart {
+            let line = NSBox(frame: NSRect(x: lineStart, y: cursorY + 8, width: lineEnd - lineStart, height: 1))
+            line.boxType = .separator
+            view.addSubview(line)
+        }
+        cursorY -= rowGap
     }
 
-    private func addRow(title: String, slider: NSSlider, y: CGFloat) {
+    private func addPopupRow(title: String, popup: NSPopUpButton, titles: [String]) {
         guard let view = window.contentView else { return }
+        cursorY -= rowHeight
         let label = NSTextField(labelWithString: title)
-        label.frame = NSRect(x: 24, y: y, width: 155, height: 20)
+        label.frame = NSRect(x: leftMargin, y: cursorY + 3, width: labelColumn - 10, height: 20)
         view.addSubview(label)
-        slider.frame = NSRect(x: 190, y: y - 3, width: 226, height: 24)
+        popup.removeAllItems()
+        popup.addItems(withTitles: titles)
+        popup.frame = NSRect(x: leftMargin + labelColumn, y: cursorY, width: controlWidth, height: 26)
+        popup.target = self
+        popup.action = #selector(valuesChanged)
+        view.addSubview(popup)
+    }
+
+    private func addRow(title: String, slider: NSSlider) {
+        guard let view = window.contentView else { return }
+        cursorY -= rowHeight
+        let label = NSTextField(labelWithString: title)
+        label.frame = NSRect(x: leftMargin, y: cursorY + 2, width: labelColumn - 10, height: 20)
+        view.addSubview(label)
+        slider.frame = NSRect(x: leftMargin + labelColumn, y: cursorY, width: controlWidth, height: 24)
         slider.isContinuous = true
         slider.target = self
         slider.action = #selector(valuesChanged)
@@ -1255,7 +1303,7 @@ private final class OverlaySettingsController: NSObject, NSWindowDelegate {
         let value = NSTextField(labelWithString: "")
         value.alignment = .right
         value.font = NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
-        value.frame = NSRect(x: 420, y: y, width: 56, height: 20)
+        value.frame = NSRect(x: leftMargin + labelColumn + controlWidth + 12, y: cursorY + 2, width: valueColumn, height: 20)
         view.addSubview(value)
         valueLabels.append(value)
     }
